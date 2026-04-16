@@ -1,5 +1,5 @@
-
 import statistics
+
 
 def detect_volatility_signal(prices: list, threshold: float):
     if len(prices) < 10:
@@ -14,9 +14,12 @@ def detect_volatility_signal(prices: list, threshold: float):
 
     if volatility > threshold:
         return {
-            "type": "ZWIĘKSZONA_ZMIENNOŚĆ",
+            "type": "PODWYŻSZONA_ZMIENNOŚĆ",
             "value": round(volatility, 4),
-            "message": "Zaobserwowano nietypowo wysoką zmienność ceny."
+            "message": (
+                "Zaobserwowano istotny wzrost zmienności. "
+                "Może to oznaczać zmianę reżimu rynkowego lub wzrost niepewności."
+            ),
         }
 
     return None
