@@ -122,13 +122,10 @@ def analyze_market():
             if len(prices) < 20:
                 continue
 
-            # 3. Wykryj sygnały
-            signals = []
-            v_signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
-            vol_signal = detect_volume_anomaly(volumes, multiplier=VOLUME_MULTIPLIER)
 
-            if v_signal: signals.append(v_signal)
-            if vol_signal: signals.append(vol_signal)
+            # 3. Wykryj sygnały (Nowa zbiorcza funkcja)
+            from signals import detect_market_signals
+            signals = detect_market_signals(prices, volumes, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
 
             # 4. Jeśli są sygnały - wyślij raport
             if signals:
