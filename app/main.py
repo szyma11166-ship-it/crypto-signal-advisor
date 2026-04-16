@@ -51,6 +51,17 @@ def portfolio_context(symbol: str):
 
 
 # ================== DANE RYNKOWE ==================
+def flatten(series):
+    """Zamienia [ [x], [y] ] -> [x, y]"""
+    result = []
+    for v in series:
+        if isinstance(v, (list, tuple)):
+            result.append(v[0])
+        else:
+            result.append(v)
+    return result
+
+
 def get_market_data(symbol: str):
     # Polska – Stooq (daily)
     if symbol.upper() in ["PKO", "PEO", "MBK", "ING", "PZU", "SANTANDER"]:
@@ -69,8 +80,8 @@ def get_market_data(symbol: str):
     # USA / global – Yahoo Finance (1h)
     data = yf.download(symbol, period="7d", interval="1h", progress=False)
 
-    prices = data["Close"].dropna().values.tolist()
-    volumes = data["Volume"].dropna().values.tolist()
+    prices = flatten(data["Close"].dropna().values.tolist())
+    volumes = flatten(data["Volume"].dropna().values.tolist())
 
     return prices, volumes
 
@@ -86,7 +97,7 @@ def handle_telegram_commands():
 
         if text == "/status":
             msg = (
-                "🤖 **Status bota**\n\n"
+                "🤖 Status bota\n\n"
                 "✅ Działa\n"
                 f"📊 Instrument: {INSTRUMENT}\n"
                 "🏷️ Rynek: Akcje\n"
@@ -101,13 +112,13 @@ def handle_telegram_commands():
 
         elif text == "/help":
             send_telegram_message(
-                "ℹ️ **Pomoc**\n\n"
-                "/status – status działania bota\n"
-                "/last – ostatni zapisany sygnał\n"
-                "/help – ta pomoc\n\n"
-                "Bot analizuje realne ceny akcji (Yahoo + Stooq)\n"
-                "i ocenia ich znaczenie dla Twojego portfela.\n"
-                "Nie generuje rekomendacji inwestycyjnych."
+                "ℹ️ Pomoc\n\n"
+                "/status – status bota\n"
+                "/last – ostatni sygnał\n"
+                "/help – pomoc\n\n"
+                "Bot analizuje realne ceny akcji\n"
+                "(Yahoo Finance + Stooq).\n"
+                "Nie generuje rekomendacji."
             )
 
         elif text == "/last":
@@ -117,7 +128,7 @@ def handle_telegram_commands():
                 return
 
             msg = (
-                "🕒 **Ostatni sygnał**\n\n"
+                "🕒 Ostatni sygnał\n\n"
                 f"Instrument: {last['instrument']}\n"
                 f"Czas: {last['timestamp']}\n\n"
             )
@@ -170,7 +181,7 @@ def analyze_market():
         relevance = "Brak znaczenia"
 
     msg = (
-        f"📡 **Sygnały rynkowe**\n\n"
+        f"📡 Sygnały rynkowe\n\n"
         f"Instrument: {INSTRUMENT}\n"
         f"Znaczenie dla portfela: {relevance} (~{int(weight*100)}%)\n\n"
     )
