@@ -18,7 +18,6 @@ def save_state(state):
         json.dump(state, f)
 
 def get_last_signal_time(symbol):
-    """Pobiera czas ostatniego alertu dla konkretnej spółki"""
     state = load_state()
     ts = state.get(f"last_ts_{symbol}")
     if ts:
@@ -26,7 +25,6 @@ def get_last_signal_time(symbol):
     return None
 
 def set_last_signal_time(symbol, dt):
-    """Zapisuje czas ostatniego alertu dla konkretnej spółki"""
     state = load_state()
     state[f"last_ts_{symbol}"] = dt.isoformat()
     save_state(state)
