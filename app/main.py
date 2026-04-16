@@ -5,11 +5,11 @@ import requests
 import yfinance as yf
 import numpy as np
 
-from app.config import INSTRUMENT, VOLATILITY_THRESHOLD
-from app.signals import detect_volatility_signal, detect_volume_anomaly
-from app.notifier import send_telegram_message, get_updates
-from app.state import get_last_signal_time, set_last_signal_time
-from app.history import add_signal, get_last_signal
+from config import INSTRUMENT, VOLATILITY_THRESHOLD
+from signals import detect_volatility_signal, detect_volume_anomaly
+from notifier import send_telegram_message, get_updates
+from state import get_last_signal_time, set_last_signal_time
+from history import add_signal, get_last_signal
 
 
 # ================== KONFIGURACJA ==================
