@@ -18,4 +18,3 @@ def get_price_history(instrument: str, limit: int = 100):
     response.raise_for_status()
 
     return [float(candle[4]) for candle in response.json()]
-``
