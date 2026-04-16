@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import requests
 import yfinance as yf
+import numpy as np
 
 from app.config import INSTRUMENT, VOLATILITY_THRESHOLD
 from app.signals import detect_volatility_signal, detect_volume_anomaly
@@ -50,18 +51,25 @@ def portfolio_context(symbol: str):
     return weight, hits
 
 
-# ================== DANE RYNKOWE ==================
-def flatten(series):
-    """Zamienia [ [x], [y] ] -> [x, y]"""
+# ================== NARZĘDZIA BEZPIECZNEJ KONWERSJI ==================
+def to_float_list(seq):
+    """
+    Zamienia dowolny pandas / numpy / list / tuple / ndarray
+    na czystą listę floatów.
+    """
     result = []
-    for v in series:
-        if isinstance(v, (list, tuple)):
-            result.append(v[0])
-        else:
-            result.append(v)
+    for x in seq:
+        try:
+            if isinstance(x, (list, tuple, np.ndarray)):
+                result.append(float(x[0]))
+            else:
+                result.append(float(x))
+        except Exception:
+            continue
     return result
 
 
+# ================== DANE RYNKOWE ==================
 def get_market_data(symbol: str):
     # Polska – Stooq (daily)
     if symbol.upper() in ["PKO", "PEO", "MBK", "ING", "PZU", "SANTANDER"]:
@@ -80,8 +88,8 @@ def get_market_data(symbol: str):
     # USA / global – Yahoo Finance (1h)
     data = yf.download(symbol, period="7d", interval="1h", progress=False)
 
-    prices = flatten(data["Close"].dropna().values.tolist())
-    volumes = flatten(data["Volume"].dropna().values.tolist())
+    prices = to_float_list(data["Close"].dropna().values)
+    volumes = to_float_list(data["Volume"].dropna().values)
 
     return prices, volumes
 
@@ -147,6 +155,9 @@ def analyze_market():
     last_check_time = now.strftime("%Y-%m-%d %H:%M:%S")
 
     prices, volumes = get_market_data(INSTRUMENT)
+
+    if len(prices) < 3 or len(volumes) < 3:
+        return  # twarde zabezpieczenie
 
     signals = []
 
