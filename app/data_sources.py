@@ -1,15 +1,15 @@
 import requests
 
 
-def get_price_history(instrument: str, limit: int = 100):
+def get_market_history(instrument: str, limit: int = 100):
     """
-    Tymczasowe źródło danych.
-    Technicznie: krypto feed.
-    Semantycznie: abstrakcyjny instrument.
+    Abstrakcyjne źródło danych rynkowych.
+    Technicznie: feed testowy.
+    Semantycznie: instrument finansowy (akcja / indeks / ETF).
     """
     url = "https://api.binance.com/api/v3/klines"
     params = {
-        "symbol": "BTCUSDT",   # FEED TECHNICZNY (do podmiany później)
+        "symbol": "BTCUSDT",   # FEED TECHNICZNY (do podmiany na akcje)
         "interval": "1h",
         "limit": limit
     }
@@ -17,4 +17,11 @@ def get_price_history(instrument: str, limit: int = 100):
     response = requests.get(url, params=params)
     response.raise_for_status()
 
-    return [float(candle[4]) for candle in response.json()]
+    prices = []
+    volumes = []
+
+    for candle in response.json():
+        prices.append(float(candle[4]))   # close
+        volumes.append(float(candle[5]))  # volume
+
+    return prices, volumes
