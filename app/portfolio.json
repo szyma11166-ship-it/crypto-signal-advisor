@@ -1,0 +1,14 @@
+{
+  "AAPL": {
+    "weight": 0.40,
+    "direction": "long"
+  },
+  "MSFT": {
+    "weight": 0.35,
+    "direction": "long"
+  },
+  "SP500": {
+    "weight": 0.25,
+    "direction": "long"
+  }
+}
