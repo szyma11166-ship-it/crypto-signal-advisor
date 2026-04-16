@@ -1,14 +1,18 @@
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.config import INSTRUMENT, MARKET_TYPE, VOLATILITY_THRESHOLD
-from app.data_sources import get_price_history
-from app.signals import detect_volatility_signal
+from app.data_sources import get_market_history
+from app.signals import (
+    detect_volatility_signal,
+    detect_volume_anomaly,
+)
 from app.notifier import send_telegram_message, get_updates
 from app.state import get_last_signal_time, set_last_signal_time
 
-CHECK_INTERVAL = 3600
-COOLDOWN = 10800
+
+CHECK_INTERVAL = 3600   # 1h
+COOLDOWN = 10800        # 3h
 
 last_update_id = None
 last_check_time = None
@@ -43,31 +47,43 @@ def handle_telegram_commands():
 def analyze_market():
     global last_check_time
 
-    last_check_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(timezone.utc)
+    last_check_time = now.strftime("%Y-%m-%d %H:%M:%S")
 
-    prices = get_price_history(INSTRUMENT)
-    signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
+    prices, volumes = get_market_history(INSTRUMENT)
 
-    if signal is None:
+    signals = []
+
+    vol_signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
+    if vol_signal:
+        signals.append(vol_signal)
+
+    volume_signal = detect_volume_anomaly(volumes)
+    if volume_signal:
+        signals.append(volume_signal)
+
+    if not signals:
         return
 
-    now = datetime.utcnow()
     last_signal_time = get_last_signal_time()
-
     if last_signal_time:
         diff = (now - last_signal_time).total_seconds()
         if diff < COOLDOWN:
             return
 
     message = (
-        "📡 Sygnał rynkowy\n\n"
-        f"Instrument: {INSTRUMENT}\n"
-        f"Rynek: {MARKET_TYPE}\n"
-        f"Typ: {signal['type']}\n"
-        f"Wartość: {signal['value']}\n\n"
-        f"{signal['message']}\n\n"
-        "Informacja analityczna – bez rekomendacji."
+        "📡 *Sygnały rynkowe*\n\n"
+        f"Instrument: `{INSTRUMENT}`\n"
+        f"Rynek: `{MARKET_TYPE}`\n\n"
     )
+
+    for s in signals:
+        message += (
+            f"• *{s['type']}* (wartość: `{s['value']}`)\n"
+            f"  {s['message']}\n\n"
+        )
+
+    message += "_Informacja analityczna – bez rekomendacji._"
 
     send_telegram_message(message)
     set_last_signal_time(now)
