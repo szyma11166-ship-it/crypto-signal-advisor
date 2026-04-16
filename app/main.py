@@ -21,12 +21,6 @@ last_update_id = None
 last_check_time = None
 
 
-# ================== MAPOWANIE NA POLSKI ==================
-MARKET_NAME_PL = {
-    "equities": "Akcje"
-}
-
-
 # ================== CISZA NOCNA ==================
 def is_night_silence(now: datetime) -> bool:
     return SILENCE_START <= now.hour < SILENCE_END
@@ -56,7 +50,7 @@ def portfolio_context(symbol: str):
     return weight, hits
 
 
-# ================== REALNE DANE RYNKOWE ==================
+# ================== DANE RYNKOWE ==================
 def get_market_data(symbol: str):
     # Polska – Stooq (daily)
     if symbol.upper() in ["PKO", "PEO", "MBK", "ING", "PZU", "SANTANDER"]:
@@ -74,8 +68,10 @@ def get_market_data(symbol: str):
 
     # USA / global – Yahoo Finance (1h)
     data = yf.download(symbol, period="7d", interval="1h", progress=False)
-    prices = data["Close"].dropna().tolist()
-    volumes = data["Volume"].dropna().tolist()
+
+    prices = data["Close"].dropna().values.tolist()
+    volumes = data["Volume"].dropna().values.tolist()
+
     return prices, volumes
 
 
@@ -132,7 +128,7 @@ def handle_telegram_commands():
             send_telegram_message(msg)
 
 
-# ================== ANALIZA RYNKU ==================
+# ================== ANALIZA ==================
 def analyze_market():
     global last_check_time
 
@@ -142,6 +138,7 @@ def analyze_market():
     prices, volumes = get_market_data(INSTRUMENT)
 
     signals = []
+
     v_signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
     vol_signal = detect_volume_anomaly(volumes)
 
@@ -193,7 +190,7 @@ def analyze_market():
     set_last_signal_time(now)
 
 
-# ================== PĘTLA GŁÓWNA ==================
+# ================== PĘTLA ==================
 if __name__ == "__main__":
     while True:
         try:
