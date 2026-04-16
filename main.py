@@ -30,11 +30,16 @@ def is_night_silence(now: datetime) -> bool:
 # ================== PORTFEL GRUPOWY ==================
 def load_portfolio_groups():
     import json, os
-    path = "app/portfolio.json"
+    # ZMIANA: Usunięto prefiks 'app/', ponieważ na Railway pliki są w głównym katalogu
+    path = "portfolio.json"
     if not os.path.exists(path):
         return {}
-    with open(path, "r") as f:
-        return json.load(f).get("groups", {})
+    try:
+        with open(path, "r") as f:
+            return json.load(f).get("groups", {})
+    except Exception as e:
+        print(f"Błąd ładowania portfolio.json: {e}")
+        return {}
 
 
 def portfolio_context(symbol: str):
@@ -80,8 +85,9 @@ def get_market_data(symbol: str):
         prices, volumes = [], []
         for row in lines[-100:]:
             parts = row.split(",")
-            prices.append(float(parts[4]))
-            volumes.append(float(parts[5]))
+            if len(parts) >= 6:
+                prices.append(float(parts[4]))
+                volumes.append(float(parts[5]))
 
         return prices, volumes
 
@@ -98,53 +104,56 @@ def get_market_data(symbol: str):
 def handle_telegram_commands():
     global last_update_id
 
-    updates = get_updates(last_update_id)
-    for update in updates:
-        last_update_id = update["update_id"] + 1
-        text = update.get("message", {}).get("text", "").strip()
+    try:
+        updates = get_updates(last_update_id)
+        for update in updates:
+            last_update_id = update["update_id"] + 1
+            text = update.get("message", {}).get("text", "").strip()
 
-        if text == "/status":
-            msg = (
-                "🤖 Status bota\n\n"
-                "✅ Działa\n"
-                f"📊 Instrument: {INSTRUMENT}\n"
-                "🏷️ Rynek: Akcje\n"
-                "⏱️ Interwał analizy: 60 minut\n"
-                "🔕 Cooldown alertów: 3 godziny\n"
-                "🌙 Cisza nocna: 00:00–06:00\n"
-            )
-            if last_check_time:
-                msg += f"\n🕒 Ostatnia analiza: {last_check_time} UTC"
+            if text == "/status":
+                msg = (
+                    "<b>🤖 Status bota</b>\n\n"
+                    "✅ Działa\n"
+                    f"📊 Instrument: {INSTRUMENT}\n"
+                    "🏷️ Rynek: Akcje\n"
+                    "⏱️ Interwał analizy: 60 minut\n"
+                    "🔕 Cooldown alertów: 3 godziny\n"
+                    "🌙 Cisza nocna: 00:00–06:00\n"
+                )
+                if last_check_time:
+                    msg += f"\n🕒 Ostatnia analiza: {last_check_time} UTC"
 
-            send_telegram_message(msg)
+                send_telegram_message(msg)
 
-        elif text == "/help":
-            send_telegram_message(
-                "ℹ️ Pomoc\n\n"
-                "/status – status bota\n"
-                "/last – ostatni sygnał\n"
-                "/help – pomoc\n\n"
-                "Bot analizuje realne ceny akcji\n"
-                "(Yahoo Finance + Stooq).\n"
-                "Nie generuje rekomendacji."
-            )
+            elif text == "/help":
+                send_telegram_message(
+                    "<b>ℹ️ Pomoc</b>\n\n"
+                    "/status – status bota\n"
+                    "/last – ostatni sygnał\n"
+                    "/help – pomoc\n\n"
+                    "Bot analizuje realne ceny akcji\n"
+                    "(Yahoo Finance + Stooq).\n"
+                    "Nie generuje rekomendacji."
+                )
 
-        elif text == "/last":
-            last = get_last_signal()
-            if not last:
-                send_telegram_message("❌ Brak zapisanych sygnałów.")
-                return
+            elif text == "/last":
+                last = get_last_signal()
+                if not last:
+                    send_telegram_message("❌ Brak zapisanych sygnałów.")
+                    return
 
-            msg = (
-                "🕒 Ostatni sygnał\n\n"
-                f"Instrument: {last['instrument']}\n"
-                f"Czas: {last['timestamp']}\n\n"
-            )
+                msg = (
+                    "<b>🕒 Ostatni sygnał</b>\n\n"
+                    f"Instrument: {last['instrument']}\n"
+                    f"Czas: {last['timestamp']}\n\n"
+                )
 
-            for s in last["signals"]:
-                msg += f"• {s['type']} ({s['value']})\n{s['message']}\n\n"
+                for s in last["signals"]:
+                    msg += f"• {s['type']} ({s['value']})\n{s['message']}\n\n"
 
-            send_telegram_message(msg)
+                send_telegram_message(msg)
+    except Exception as e:
+        print(f"Błąd komend Telegrama: {e}")
 
 
 # ================== ANALIZA ==================
@@ -192,8 +201,8 @@ def analyze_market():
         relevance = "Brak znaczenia"
 
     msg = (
-        f"📡 Sygnały rynkowe\n\n"
-        f"Instrument: {INSTRUMENT}\n"
+        f"<b>📡 Sygnały rynkowe</b>\n\n"
+        f"Instrument: <b>{INSTRUMENT}</b>\n"
         f"Znaczenie dla portfela: {relevance} (~{int(weight*100)}%)\n\n"
     )
 
@@ -219,6 +228,6 @@ if __name__ == "__main__":
             handle_telegram_commands()
             analyze_market()
         except Exception as e:
-            print("Błąd:", e)
+            print("Błąd pętli głównej:", e)
 
         time.sleep(30)
