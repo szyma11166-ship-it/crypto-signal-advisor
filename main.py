@@ -5,179 +5,118 @@ import yfinance as yf
 import numpy as np
 import pandas as pd
 
-# Importy
 from config import INSTRUMENTS, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER, COOLDOWN
 from signals import detect_market_signals
 from notifier import send_telegram_message, get_updates
 from state import get_last_signal_time, set_last_signal_time
-# Założyłem, że w history.py masz taką funkcję. Jeśli nie - możesz zakomentować tę linię.
-from history import add_signal 
 
-# ================== KONFIGURACJA CZASOWA ==================
+# ================== KONFIGURACJA ==================
 SILENCE_START, SILENCE_END = 0, 6
-
 last_update_id = None
 last_check_time = "Brak"
 
 def is_night_silence(now: datetime) -> bool:
     return SILENCE_START <= now.hour < SILENCE_END
 
-def load_portfolio_groups():
+def portfolio_context(symbol: str):
     import json, os
     path = "portfolio.json"
-    if not os.path.exists(path): return {}
+    if not os.path.exists(path): return 0.0, []
     try:
-        with open(path, "r") as f: 
-            data = json.load(f)
-            return data.get("groups", {})
-    except Exception as e:
-        print(f"Błąd ładowania portfolio: {e}")
-        return {}
-
-def portfolio_context(symbol: str):
-    groups = load_portfolio_groups()
-    weight = 0.0
-    hits = []
-    for name, grp in groups.items():
-        if symbol in grp.get("instruments", []):
-            w = float(grp.get("weight", 0))
-            weight += w
-            hits.append((name, int(w * 100)))
-    return weight, hits
+        with open(path, "r") as f:
+            data = json.load(f).get("groups", {})
+            weight = 0.0
+            for name, grp in data.items():
+                if symbol in grp.get("instruments", []):
+                    weight += float(grp.get("weight", 0))
+            return weight, []
+    except: return 0.0, []
 
 def to_float_list(seq):
     return [float(x[0]) if isinstance(x, (list, np.ndarray)) else float(x) for x in seq]
 
-# ================== INTELIGENTNE POBIERANIE DANYCH ==================
+# ================== POPRAWIONE POBIERANIE DANYCH ==================
 def get_market_data(symbol: str):
     symbol = symbol.upper()
+    gpw_list = ["PKO", "PEO", "PKN", "PZU", "ING", "KGH", "ALE", "LPP", "DNP", "XTB", "KTY", "11B", "SNT", "PHT", "SN2", "CDR"]
     
-    # Lista GPW (rozszerzona o Twoje tickery)
-    gpw_list = [
-        "PKO", "PEO", "PKN", "PZU", "ING", "KGH", "ALE", "LPP", 
-        "DNP", "XTB", "KTY", "11B", "SNT", "PHT", "SN2", "CDR"
-    ]
-    
+    # HEADERS: Udajemy przeglądarkę, żeby Stooq nas nie blokował
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+
     if symbol in gpw_list:
-        # STOOQ (Polska)
         url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
         try:
-            r = requests.get(url, timeout=10)
-            if r.status_code != 200: return [], []
+            r = requests.get(url, headers=headers, timeout=15)
+            if "Brak danych" in r.text or r.status_code != 200:
+                return [], []
             
             lines = r.text.strip().splitlines()[1:]
             prices, volumes = [], []
-            # PRO TWEAK: Pobieramy ostatnie 300 dni, żeby EMA200 mogła się policzyć
-            for row in lines[-300:]:
+            for row in lines[-300:]: # Ostatnie 300 dni dla EMA200
                 parts = row.split(",")
                 if len(parts) >= 6:
                     prices.append(float(parts[4]))
                     volumes.append(float(parts[5]))
             return prices, volumes
         except Exception as e:
-            print(f"Błąd Stooq dla {symbol}: {e}")
+            print(f"Błąd Stooq {symbol}: {e}")
             return [], []
 
-    # YAHOO FINANCE (USA / Złoto / Świat)
+    # USA
     try:
-        # PRO TWEAK: period="1y" (rok wstecz), interval="1d" (świece dzienne)
         data = yf.download(symbol, period="1y", interval="1d", progress=False)
         if data.empty: return [], []
         prices = to_float_list(data["Close"].dropna().values)
         volumes = to_float_list(data["Volume"].dropna().values)
         return prices, volumes
     except Exception as e:
-        print(f"Błąd Yahoo dla {symbol}: {e}")
+        print(f"Błąd Yahoo {symbol}: {e}")
         return [], []
 
-# ================== TELEGRAM COMMANDS ==================
-def handle_telegram_commands():
-    global last_update_id
-    try:
-        updates = get_updates(last_update_id)
-        for update in updates:
-            last_update_id = update["update_id"] + 1
-            msg_obj = update.get("message", {})
-            text = msg_obj.get("text", "").strip()
-            
-            if text == "/status":
-                status_msg = (
-                    f"<b>🤖 Status Marka Towarka PRO</b>\n\n"
-                    f"✅ Maszyna działa\n"
-                    f"📊 Śledzi: {len(INSTRUMENTS)} spółek (Interwał 1D)\n"
-                    f"🕒 Ost. analiza: {last_check_time}"
-                )
-                send_telegram_message(status_msg)
-    except: pass
-
-# ================== GŁÓWNA ANALIZA ==================
+# ================== ANALIZA ==================
 def analyze_market():
     global last_check_time
     now = datetime.now(timezone.utc)
     last_check_time = now.strftime("%H:%M:%S")
 
-    print(f"[{last_check_time}] Rozpoczynam skanowanie {len(INSTRUMENTS)} instrumentów...")
+    print(f"[{last_check_time}] Skanowanie {len(INSTRUMENTS)} spółek...")
 
     for symbol in INSTRUMENTS:
         try:
-            # 1. Anty-spam: Sprawdź cooldown dla tej konkretnej spółki
+            # Cooldown
             last_time = get_last_signal_time(symbol)
-            if last_time:
-                diff = (now - last_time).total_seconds()
-                if diff < COOLDOWN:
-                    continue # Milczymy, cooldown jeszcze trwa
-
-            # 2. Pobierz dane giełdowe
-            prices, volumes = get_market_data(symbol)
-            
-            # Wymagamy minimum 200 świec dla poprawnego EMA200, 
-            # ale jeśli to młoda spółka, puszczamy od 25 (dla RSI)
-            if len(prices) < 25:
-                print(f"[{symbol}] Za mało danych ({len(prices)} świec). Pomijam.")
+            if last_time and (now - last_time).total_seconds() < COOLDOWN:
                 continue
 
-            # 3. Wykryj sygnały PRO (używa nowej funkcji z signals.py)
+            prices, volumes = get_market_data(symbol)
+            
+            # Musi być min 20 świec, żeby RSI w ogóle drgnęło
+            if len(prices) < 20:
+                print(f"[{symbol}] Za mało danych ({len(prices)} świec).")
+                continue
+
             signals = detect_market_signals(prices, volumes, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
 
-            # 4. Jeśli są sygnały - wyślij raport
             if signals:
-                if is_night_silence(now):
-                    print(f"Sygnał dla {symbol} zignorowany (cisza nocna).")
-                    continue
+                if is_night_silence(now): continue
                 
-                weight, groups = portfolio_context(symbol)
+                weight, _ = portfolio_context(symbol)
                 relevance = "Wysokie" if weight >= 0.3 else "Normalne" if weight > 0 else "Obserwowane"
                 
-                msg = f"📡 <b>Sygnał: {symbol}</b>\nStatus: {relevance} (~{int(weight*100)}% portfela)\n\n"
+                msg = f"📡 <b>Sygnał: {symbol}</b>\nStatus: {relevance} (~{int(weight*100)}%)\n\n"
                 for s in signals:
-                    msg += f"• <b>{s['type']}</b> ({s['value']})\n{s['message']}\n\n"
+                    msg += f"• <b>{s['type']}</b>\n{s['message']}\n\n"
                 
                 send_telegram_message(msg)
-                
-                # 5. Zapamiętaj wysłanie alertu
                 set_last_signal_time(symbol, now)
-                
-                # Próba zapisu do historii (jeśli funkcja istnieje)
-                try:
-                    add_signal(symbol, "akcje", signals, now)
-                except:
-                    pass
-                
-                time.sleep(1.5) # Anty-spam API Telegrama
+                time.sleep(1)
 
         except Exception as e:
-            print(f"Błąd przy analizie {symbol}: {e}")
+            print(f"Błąd {symbol}: {e}")
 
-# ================== PĘTLA GŁÓWNA ==================
 if __name__ == "__main__":
     print("🚀 Maszyna Marek Towarek PRO URUCHOMIONA")
     while True:
-        try:
-            handle_telegram_commands()
-            analyze_market()
-        except Exception as e:
-            print(f"KRYTYCZNY BŁĄD PĘTLI: {e}")
-        
-        # Skanujemy rynek co 5 minut. 
-        # (Większość alertów i tak zablokuje COOLDOWN z config.py)
-        time.sleep(300) 
+        handle_telegram_commands()
+        analyze_market()
+        time.sleep(300) # Co 5 minut
