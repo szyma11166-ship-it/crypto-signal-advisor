@@ -1,234 +1,130 @@
 import time
 from datetime import datetime, timezone
-
 import requests
 import yfinance as yf
 import numpy as np
+import pandas as pd
 
-from config import INSTRUMENT, VOLATILITY_THRESHOLD
+from config import INSTRUMENTS, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER
 from signals import detect_volatility_signal, detect_volume_anomaly
 from notifier import send_telegram_message, get_updates
 from state import get_last_signal_time, set_last_signal_time
 from history import add_signal, get_last_signal
 
-
-# ================== KONFIGURACJA ==================
-CHECK_INTERVAL = 3600          # 1 godzina
-COOLDOWN = 10800               # 3 godziny
-SILENCE_START = 0              # 00:00
-SILENCE_END = 6                # 06:00
+# ================== KONFIGURACJA CZASOWA ==================
+CHECK_INTERVAL = 3600
+COOLDOWN = 10800
+SILENCE_START, SILENCE_END = 0, 6
 
 last_update_id = None
 last_check_time = None
 
-
-# ================== CISZA NOCNA ==================
 def is_night_silence(now: datetime) -> bool:
     return SILENCE_START <= now.hour < SILENCE_END
 
-
-# ================== PORTFEL GRUPOWY ==================
 def load_portfolio_groups():
     import json, os
-    # ZMIANA: Usunięto prefiks 'app/', ponieważ na Railway pliki są w głównym katalogu
     path = "portfolio.json"
-    if not os.path.exists(path):
-        return {}
+    if not os.path.exists(path): return {}
     try:
-        with open(path, "r") as f:
-            return json.load(f).get("groups", {})
-    except Exception as e:
-        print(f"Błąd ładowania portfolio.json: {e}")
-        return {}
-
+        with open(path, "r") as f: return json.load(f).get("groups", {})
+    except: return {}
 
 def portfolio_context(symbol: str):
     groups = load_portfolio_groups()
     weight = 0.0
     hits = []
-
     for name, grp in groups.items():
         if symbol in grp.get("instruments", []):
             w = float(grp.get("weight", 0))
             weight += w
             hits.append((name, int(w * 100)))
-
     return weight, hits
 
-
-# ================== NARZĘDZIA BEZPIECZNEJ KONWERSJI ==================
 def to_float_list(seq):
-    """
-    Zamienia dowolny pandas / numpy / list / tuple / ndarray
-    na czystą listę floatów.
-    """
-    result = []
-    for x in seq:
-        try:
-            if isinstance(x, (list, tuple, np.ndarray)):
-                result.append(float(x[0]))
-            else:
-                result.append(float(x))
-        except Exception:
-            continue
-    return result
+    return [float(x[0]) if isinstance(x, (list, np.ndarray)) else float(x) for x in seq]
 
-
-# ================== DANE RYNKOWE ==================
+# ================== INTELIGENTNE POBIERANIE DANYCH ==================
 def get_market_data(symbol: str):
-    # Polska – Stooq (daily)
-    if symbol.upper() in ["PKO", "PEO", "MBK", "ING", "PZU", "SANTANDER"]:
+    symbol = symbol.upper()
+    # Rozpoznawanie rynku: jeśli symbol jest krótki i bez kropki, uznajemy go za GPW
+    # (Możesz tu dodać więcej symboli GPW)
+    gpw_symbols = ["PKO", "PEO", "MBK", "ING", "PZU", "ALE", "KGH", "DNP", "LPP", "SANTANDER", "CDR"]
+    
+    if symbol in gpw_symbols:
         url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
-        r = requests.get(url)
-        lines = r.text.splitlines()[1:]
+        try:
+            r = requests.get(url, timeout=10)
+            lines = r.text.splitlines()[1:]
+            prices, volumes = [], []
+            for row in lines[-100:]:
+                parts = row.split(",")
+                if len(parts) >= 6:
+                    prices.append(float(parts[4]))
+                    volumes.append(float(parts[5]))
+            return prices, volumes
+        except: return [], []
 
-        prices, volumes = [], []
-        for row in lines[-100:]:
-            parts = row.split(",")
-            if len(parts) >= 6:
-                prices.append(float(parts[4]))
-                volumes.append(float(parts[5]))
-
+    # USA / Global (Yahoo Finance)
+    try:
+        data = yf.download(symbol, period="10d", interval="1h", progress=False)
+        if data.empty: return [], []
+        prices = to_float_list(data["Close"].dropna().values)
+        volumes = to_float_list(data["Volume"].dropna().values)
         return prices, volumes
-
-    # USA / global – Yahoo Finance (1h)
-    data = yf.download(symbol, period="7d", interval="1h", progress=False)
-
-    prices = to_float_list(data["Close"].dropna().values)
-    volumes = to_float_list(data["Volume"].dropna().values)
-
-    return prices, volumes
-
+    except: return [], []
 
 # ================== TELEGRAM ==================
 def handle_telegram_commands():
     global last_update_id
-
     try:
         updates = get_updates(last_update_id)
         for update in updates:
             last_update_id = update["update_id"] + 1
             text = update.get("message", {}).get("text", "").strip()
-
             if text == "/status":
-                msg = (
-                    "<b>🤖 Status bota</b>\n\n"
-                    "✅ Działa\n"
-                    f"📊 Instrument: {INSTRUMENT}\n"
-                    "🏷️ Rynek: Akcje\n"
-                    "⏱️ Interwał analizy: 60 minut\n"
-                    "🔕 Cooldown alertów: 3 godziny\n"
-                    "🌙 Cisza nocna: 00:00–06:00\n"
-                )
-                if last_check_time:
-                    msg += f"\n🕒 Ostatnia analiza: {last_check_time} UTC"
-
+                msg = f"<b>🤖 Status Maszyny</b>\n\n✅ Działa\n📊 Śledzi: {len(INSTRUMENTS)} spółek\n🕒 Ost. analiza: {last_check_time}"
                 send_telegram_message(msg)
+    except: pass
 
-            elif text == "/help":
-                send_telegram_message(
-                    "<b>ℹ️ Pomoc</b>\n\n"
-                    "/status – status bota\n"
-                    "/last – ostatni sygnał\n"
-                    "/help – pomoc\n\n"
-                    "Bot analizuje realne ceny akcji\n"
-                    "(Yahoo Finance + Stooq).\n"
-                    "Nie generuje rekomendacji."
-                )
-
-            elif text == "/last":
-                last = get_last_signal()
-                if not last:
-                    send_telegram_message("❌ Brak zapisanych sygnałów.")
-                    return
-
-                msg = (
-                    "<b>🕒 Ostatni sygnał</b>\n\n"
-                    f"Instrument: {last['instrument']}\n"
-                    f"Czas: {last['timestamp']}\n\n"
-                )
-
-                for s in last["signals"]:
-                    msg += f"• {s['type']} ({s['value']})\n{s['message']}\n\n"
-
-                send_telegram_message(msg)
-    except Exception as e:
-        print(f"Błąd komend Telegrama: {e}")
-
-
-# ================== ANALIZA ==================
+# ================== GŁÓWNA ANALIZA (LOOP PO LIŚCIE) ==================
 def analyze_market():
     global last_check_time
-
     now = datetime.now(timezone.utc)
-    last_check_time = now.strftime("%Y-%m-%d %H:%M:%S")
+    last_check_time = now.strftime("%H:%M:%S")
 
-    prices, volumes = get_market_data(INSTRUMENT)
+    print(f"--- START ANALIZY: {len(INSTRUMENTS)} instrumentów ---")
 
-    if len(prices) < 3 or len(volumes) < 3:
-        return  # twarde zabezpieczenie
+    for symbol in INSTRUMENTS:
+        prices, volumes = get_market_data(symbol)
+        if len(prices) < 20: continue # Potrzebujemy min. 20 dla RSI
 
-    signals = []
+        signals = []
+        v_signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
+        vol_signal = detect_volume_anomaly(volumes, multiplier=VOLUME_MULTIPLIER)
 
-    v_signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
-    vol_signal = detect_volume_anomaly(volumes)
+        if v_signal: signals.append(v_signal)
+        if vol_signal: signals.append(vol_signal)
 
-    if v_signal:
-        signals.append(v_signal)
-    if vol_signal:
-        signals.append(vol_signal)
+        if signals:
+            if is_night_silence(now): continue
+            
+            weight, groups = portfolio_context(symbol)
+            relevance = "Wysokie" if weight >= 0.3 else "Normalne" if weight > 0 else "Obserwowane"
+            
+            msg = f"📡 <b>Sygnał: {symbol}</b>\nStatus: {relevance} (~{int(weight*100)}%)\n\n"
+            for s in signals:
+                msg += f"• <b>{s['type']}</b> ({s['value']})\n{s['message']}\n\n"
+            
+            send_telegram_message(msg)
+            add_signal(symbol, "akcje", signals, now)
+            time.sleep(1) # Anty-spam Telegrama
 
-    if not signals:
-        return
-
-    last_signal_time = get_last_signal_time()
-    if last_signal_time:
-        if (now - last_signal_time).total_seconds() < COOLDOWN:
-            return
-
-    if is_night_silence(now):
-        return
-
-    weight, groups = portfolio_context(INSTRUMENT)
-
-    if weight >= 0.4:
-        relevance = "Wysokie znaczenie"
-    elif weight >= 0.2:
-        relevance = "Średnie znaczenie"
-    elif weight > 0:
-        relevance = "Niskie znaczenie"
-    else:
-        relevance = "Brak znaczenia"
-
-    msg = (
-        f"<b>📡 Sygnały rynkowe</b>\n\n"
-        f"Instrument: <b>{INSTRUMENT}</b>\n"
-        f"Znaczenie dla portfela: {relevance} (~{int(weight*100)}%)\n\n"
-    )
-
-    if groups:
-        msg += "Dotyczy grup:\n"
-        for g, w in groups:
-            msg += f"• {g} ({w}%)\n"
-        msg += "\n"
-
-    for s in signals:
-        msg += f"• {s['type']} ({s['value']})\n{s['message']}\n\n"
-
-    send_telegram_message(msg)
-
-    add_signal(INSTRUMENT, "akcje", signals, now)
-    set_last_signal_time(now)
-
-# ================== PĘTLA ==================
 if __name__ == "__main__":
-    print("--- MAREK TOWAREK URUCHAMIA SIĘ ---") # To musi się pojawić w logach!
     while True:
         try:
-            print(f"Sprawdzam komendy i rynek... {datetime.now()}")
             handle_telegram_commands()
             analyze_market()
         except Exception as e:
-            print("BŁĄD KRYTYCZNY PĘTLI:", e)
-
-        time.sleep(30)
+            print(f"Błąd pętli: {e}")
+        time.sleep(60) # Sprawdzaj co minutę (ale cooldowny w funkcjach pilnują spamu)
