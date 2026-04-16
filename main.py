@@ -95,25 +95,22 @@ def analyze_market():
 
     print(f"--- START ANALIZY: {len(INSTRUMENTS)} instrumentów ---")
 
-    for symbol in INSTRUMENTS:
-        prices, volumes = get_market_data(symbol)
-        if len(prices) < 20: continue # Potrzebujemy min. 20 dla RSI
+# Fragment wewnątrz analyze_market() w main.py:
 
-        signals = []
-        v_signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
-        vol_signal = detect_volume_anomaly(volumes, multiplier=VOLUME_MULTIPLIER)
+for symbol in INSTRUMENTS:
+    # 1. Sprawdź, czy ta konkretna spółka nie miała alertu niedawno
+    last_time = get_last_signal_time(symbol)
+    if last_time:
+        if (datetime.now(timezone.utc) - last_time).total_seconds() < COOLDOWN:
+            continue # Milczymy o tej spółce
 
-        if v_signal: signals.append(v_signal)
-        if vol_signal: signals.append(vol_signal)
+    # ... tutaj pobieranie danych i detekcja sygnałów ...
 
-        if signals:
-            # Sprawdź cooldown DLA TEJ KONKRETNEJ SPÓŁKI
-            last_time = get_last_signal_time(symbol)
-            if last_time:
-                diff = (now - last_time).total_seconds()
-                if diff < COOLDOWN:
-                    print(f"Pominięto {symbol} - cooldown (jeszcze {int((COOLDOWN-diff)/60)} min)")
-                    continue 
+    if signals:
+        # Wyślij alert
+        send_telegram_message(msg)
+        # 2. ZAPISZ czas wysłania TYLKO DLA TEJ SPÓŁKI
+        set_last_signal_time(symbol, datetime.now(timezone.utc))
 
             if is_night_silence(now):
                 continue
