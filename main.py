@@ -112,9 +112,6 @@ for symbol in INSTRUMENTS:
         # 2. ZAPISZ czas wysłania TYLKO DLA TEJ SPÓŁKI
         set_last_signal_time(symbol, datetime.now(timezone.utc))
 
-            if is_night_silence(now):
-                continue
-            
             # ... wysyłanie wiadomości ...
             
             send_telegram_message(msg)
