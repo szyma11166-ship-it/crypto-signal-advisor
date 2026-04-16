@@ -2,3 +2,5 @@ requests
 yfinance
 pandas
 numpy
+urllib3
+cryptography
