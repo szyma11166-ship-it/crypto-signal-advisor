@@ -2,129 +2,142 @@ import time
 from datetime import datetime, timezone
 
 from app.config import INSTRUMENT, MARKET_TYPE, VOLATILITY_THRESHOLD
-from app.data_sources import get_market_history
-from app.signals import (
-    detect_volatility_signal,
-    detect_volume_anomaly,
-)
+from app.signals import detect_volatility_signal, detect_volume_anomaly
 from app.notifier import send_telegram_message, get_updates
 from app.state import get_last_signal_time, set_last_signal_time
 from app.history import add_signal, get_last_signal
 
+import yfinance as yf
+import requests
 
-CHECK_INTERVAL = 3600   # 1h
-COOLDOWN = 10800        # 3h
+
+# ================== KONFIG ==================
+CHECK_INTERVAL = 3600         # 1h
+COOLDOWN = 10800              # 3h
+NIGHT_SILENCE_START = 0       # 00:00
+NIGHT_SILENCE_END = 6         # 06:00
 
 last_update_id = None
 last_check_time = None
 
 
-# -------- POMOCNICZE: KONTEKST PORTFELA (GRUPY) --------
+# ================== PORTFEL GRUPOWY ==================
 def load_portfolio_groups():
-    import json
-    import os
-
+    import json, os
     path = "app/portfolio.json"
     if not os.path.exists(path):
         return {}
-
-    with open(path, "r") as f:
+    with open(path) as f:
         return json.load(f).get("groups", {})
 
 
-def portfolio_relevance_for_instrument(instrument: str):
+def portfolio_context(instrument):
     groups = load_portfolio_groups()
-    total_weight = 0.0
-    hit_groups = []
+    weight = 0.0
+    hits = []
 
-    for name, group in groups.items():
-        if instrument in group.get("instruments", []):
-            w = float(group.get("weight", 0))
-            total_weight += w
-            hit_groups.append((name, w))
+    for name, grp in groups.items():
+        if instrument in grp.get("instruments", []):
+            w = grp.get("weight", 0)
+            weight += w
+            hits.append((name, w))
 
-    return total_weight, hit_groups
+    return weight, hits
 
 
-# -------- TELEGRAM COMMANDS --------
+# ================== CISZA NOCNA ==================
+def is_night_silence(now):
+    hour = now.hour
+    return NIGHT_SILENCE_START <= hour < NIGHT_SILENCE_END
+
+
+# ================== DANE RYNKOWE ==================
+def get_market_data(symbol):
+    # Polska -> Stooq (daily)
+    if symbol.isupper() and len(symbol) <= 4 and symbol not in ["AAPL", "TSLA", "NVDA", "MCD"]:
+        url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
+        r = requests.get(url)
+        lines = r.text.splitlines()[1:]
+        prices = []
+        volumes = []
+
+        for l in lines[-100:]:
+            parts = l.split(",")
+            prices.append(float(parts[4]))
+            volumes.append(float(parts[5]))
+
+        return prices, volumes
+
+    # Reszta -> Yahoo Finance
+    data = yf.download(symbol, period="7d", interval="1h", progress=False)
+    prices = data["Close"].dropna().tolist()
+    volumes = data["Volume"].dropna().tolist()
+    return prices, volumes
+
+
+# ================== TELEGRAM ==================
 def handle_telegram_commands():
     global last_update_id
 
     updates = get_updates(last_update_id)
     for update in updates:
         last_update_id = update["update_id"] + 1
+        txt = update.get("message", {}).get("text", "").strip()
 
-        message = update.get("message", {})
-        text = message.get("text", "").strip()
-
-        if text == "/status":
-            response = (
+        if txt == "/status":
+            msg = (
                 "🤖 Status bota\n\n"
                 "✅ Działa\n"
                 f"📊 Instrument: {INSTRUMENT}\n"
                 f"🏷️ Rynek: {MARKET_TYPE}\n"
-                f"⏱️ Interwał analizy: {CHECK_INTERVAL // 60} min\n"
-                f"🔕 Cooldown alertów: {COOLDOWN // 3600} h\n"
+                f"⏱️ Interwał analizy: 60 min\n"
+                f"🔕 Cooldown alertów: 3 h\n"
             )
-
             if last_check_time:
-                response += f"\n🕒 Ostatnia analiza: {last_check_time} UTC"
+                msg += f"\n🕒 Ostatnia analiza: {last_check_time} UTC"
+            send_telegram_message(msg)
 
-            send_telegram_message(response)
-
-        elif text == "/help":
-            response = (
-                "ℹ️ Pomoc – bot sygnałów rynkowych\n\n"
-                "Komendy:\n"
-                "/status – status działania\n"
-                "/last   – ostatni zapisany sygnał\n"
-                "/help   – ta pomoc\n\n"
-                "Bot analizuje rynek i odnosi sygnały\n"
-                "do struktury Twojego portfela.\n"
-                "Nie jest to rekomendacja inwestycyjna."
+        elif txt == "/help":
+            send_telegram_message(
+                "ℹ️ Pomoc\n\n"
+                "/status – status pracy bota\n"
+                "/last – ostatni zapisany sygnał\n"
+                "/help – pomoc\n\n"
+                "Cisza nocna: 00:00–06:00\n"
+                "Źródła danych: Yahoo Finance + Stooq\n"
             )
 
-            send_telegram_message(response)
-
-        elif text == "/last":
+        elif txt == "/last":
             last = get_last_signal()
             if not last:
                 send_telegram_message("❌ Brak zapisanych sygnałów.")
                 return
 
-            response = (
-                "🕒 *Ostatni sygnał*\n\n"
-                f"Instrument: `{last['instrument']}`\n"
-                f"Rynek: `{last['market']}`\n"
-                f"Czas: `{last['timestamp']}`\n\n"
+            msg = (
+                "🕒 Ostatni sygnał\n\n"
+                f"{last['instrument']} | {last['timestamp']}\n\n"
             )
-
             for s in last["signals"]:
-                response += (
-                    f"• *{s['type']}* ({s['value']})\n"
-                    f"  {s['message']}\n\n"
-                )
+                msg += f"• {s['type']} ({s['value']})\n{s['message']}\n\n"
 
-            response += "_Dane archiwalne – bez rekomendacji._"
-            send_telegram_message(response)
+            send_telegram_message(msg)
 
 
-# -------- ANALIZA RYNKU --------
+# ================== ANALIZA ==================
 def analyze_market():
     global last_check_time
 
     now = datetime.now(timezone.utc)
     last_check_time = now.strftime("%Y-%m-%d %H:%M:%S")
 
-    prices, volumes = get_market_history(INSTRUMENT)
+    prices, volumes = get_market_data(INSTRUMENT)
 
     signals = []
-
     s1 = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
+    s2 = detect_volume_anomaly(volumes)
+
     if s1:
         signals.append(s1)
-
-    s2 = detect_volume_anomaly(volumes)
     if s2:
         signals.append(s2)
 
@@ -133,49 +146,36 @@ def analyze_market():
 
     last_signal_time = get_last_signal_time()
     if last_signal_time:
-        diff = (now - last_signal_time).total_seconds()
-        if diff < COOLDOWN:
+        if (now - last_signal_time).total_seconds() < COOLDOWN:
             return
 
-    weight, groups = portfolio_relevance_for_instrument(INSTRUMENT)
+    weight, groups = portfolio_context(INSTRUMENT)
 
-    if weight >= 0.4:
-        relevance = "WYSOKIE"
-    elif weight >= 0.2:
-        relevance = "ŚREDNIE"
-    elif weight > 0:
-        relevance = "NISKIE"
-    else:
-        relevance = "BRAK"
+    if is_night_silence(now):
+        return
 
-    message = (
-        "📡 *Sygnały rynkowe*\n\n"
-        f"Instrument: `{INSTRUMENT}`\n"
-        f"Rynek: `{MARKET_TYPE}`\n"
-        f"Znaczenie dla portfela: *{relevance}* (~{int(weight*100)}%)\n\n"
+    msg = (
+        f"📡 Sygnały rynkowe\n\n"
+        f"Instrument: {INSTRUMENT}\n"
+        f"Znaczenie portfela: ~{int(weight*100)}%\n\n"
     )
 
     if groups:
-        message += "Dotyczy grup:\n"
+        msg += "Dotyczy grup:\n"
         for g, w in groups:
-            message += f"• {g} ({int(w*100)}%)\n"
-        message += "\n"
+            msg += f"• {g} ({int(w*100)}%)\n"
+        msg += "\n"
 
     for s in signals:
-        message += (
-            f"• *{s['type']}* ({s['value']})\n"
-            f"  {s['message']}\n\n"
-        )
+        msg += f"• {s['type']} ({s['value']})\n{s['message']}\n\n"
 
-    message += "_Informacja analityczna – bez rekomendacji._"
-
-    send_telegram_message(message)
+    send_telegram_message(msg)
 
     add_signal(INSTRUMENT, MARKET_TYPE, signals, now)
     set_last_signal_time(now)
 
 
-# -------- LOOP --------
+# ================== LOOP ==================
 if __name__ == "__main__":
     while True:
         try:
