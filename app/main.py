@@ -1,4 +1,3 @@
-
 import time
 from datetime import datetime
 
@@ -7,8 +6,8 @@ from app.data_sources import get_price_history
 from app.signals import detect_volatility_signal
 from app.notifier import send_telegram_message
 
-CHECK_INTERVAL = 60 * 60      # co ile sprawdzamy (1h)
-COOLDOWN = 3 * 60 * 60        # minimalny odstęp między alertami (3h)
+CHECK_INTERVAL = 3600
+COOLDOWN = 10800
 
 last_signal_time = None
 
@@ -19,27 +18,26 @@ def analyze_market():
     prices = get_price_history(SYMBOL)
     signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
 
-    if not signal:
+    if signal is None:
         return
 
     now = datetime.utcnow()
 
-    # cooldown – żeby nie spamować
-    if last_signal_time:
-        delta = (now - last_signal_time).total_seconds()
-        if delta < COOLDOWN:
+    if last_signal_time is not None:
+        diff = (now - last_signal_time).total_seconds()
+        if diff < COOLDOWN:
             return
 
-    message = (
-        f"📡 *Sygnał rynkowy*\n\n"
-        f"Instrument: `{SYMBOL}`\n"
-        f"Typ: *{signal['type']}*\n"
-        f"Wartość: `{signal['value']}`\n\n"
+    text = (
+        "📡 Sygnał rynkowy\n\n"
+        f"Instrument: {SYMBOL}\n"
+        f"Typ: {signal['type']}\n"
+        f"Wartość: {signal['value']}\n\n"
         f"{signal['message']}\n\n"
-        f"_Informacja analityczna – bez rekomendacji._"
+        "Informacja analityczna – bez rekomendacji."
     )
 
-    send_telegram_message(message)
+    send_telegram_message(text)
     last_signal_time = now
 
 
@@ -48,7 +46,6 @@ if __name__ == "__main__":
         try:
             analyze_market()
         except Exception as e:
-            print("Błąd analizy:", e)
+            print("Błąd:", e)
 
         time.sleep(CHECK_INTERVAL)
-``
