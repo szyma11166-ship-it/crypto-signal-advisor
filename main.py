@@ -5,19 +5,18 @@ import yfinance as yf
 import numpy as np
 import pandas as pd
 
-from config import INSTRUMENTS, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER
+# Importy z Twoich plików
+from config import INSTRUMENTS, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER, COOLDOWN
 from signals import detect_volatility_signal, detect_volume_anomaly
 from notifier import send_telegram_message, get_updates
 from state import get_last_signal_time, set_last_signal_time
-from history import add_signal, get_last_signal
+from history import add_signal
 
 # ================== KONFIGURACJA CZASOWA ==================
-CHECK_INTERVAL = 3600
-COOLDOWN = 10800
 SILENCE_START, SILENCE_END = 0, 6
 
 last_update_id = None
-last_check_time = None
+last_check_time = "Brak"
 
 def is_night_silence(now: datetime) -> bool:
     return SILENCE_START <= now.hour < SILENCE_END
@@ -27,7 +26,9 @@ def load_portfolio_groups():
     path = "portfolio.json"
     if not os.path.exists(path): return {}
     try:
-        with open(path, "r") as f: return json.load(f).get("groups", {})
+        with open(path, "r") as f: 
+            data = json.load(f)
+            return data.get("groups", {})
     except: return {}
 
 def portfolio_context(symbol: str):
@@ -47,11 +48,15 @@ def to_float_list(seq):
 # ================== INTELIGENTNE POBIERANIE DANYCH ==================
 def get_market_data(symbol: str):
     symbol = symbol.upper()
-    # Rozpoznawanie rynku: jeśli symbol jest krótki i bez kropki, uznajemy go za GPW
-    # (Możesz tu dodać więcej symboli GPW)
-    gpw_symbols = ["PKO", "PEO", "MBK", "ING", "PZU", "ALE", "KGH", "DNP", "LPP", "SANTANDER", "CDR"]
     
-    if symbol in gpw_symbols:
+    # Rozszerzona lista Twoich spółek z GPW na podstawie screenów
+    gpw_list = [
+        "PKO", "PEO", "PKN", "PZU", "ING", "KGH", "ALE", "LPP", 
+        "DNP", "XTB", "KTY", "11B", "SNT", "PHT", "SN2", "CDR"
+    ]
+    
+    if symbol in gpw_list:
+        # Stooq dla GPW
         url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
         try:
             r = requests.get(url, timeout=10)
@@ -67,6 +72,7 @@ def get_market_data(symbol: str):
 
     # USA / Global (Yahoo Finance)
     try:
+        # Obsługa złota (4GLD.DE) i innych tickerów z kropką
         data = yf.download(symbol, period="10d", interval="1h", progress=False)
         if data.empty: return [], []
         prices = to_float_list(data["Close"].dropna().values)
@@ -74,59 +80,90 @@ def get_market_data(symbol: str):
         return prices, volumes
     except: return [], []
 
-# ================== TELEGRAM ==================
+# ================== TELEGRAM COMMANDS ==================
 def handle_telegram_commands():
     global last_update_id
     try:
         updates = get_updates(last_update_id)
         for update in updates:
             last_update_id = update["update_id"] + 1
-            text = update.get("message", {}).get("text", "").strip()
+            msg_obj = update.get("message", {})
+            text = msg_obj.get("text", "").strip()
+            
             if text == "/status":
-                msg = f"<b>🤖 Status Maszyny</b>\n\n✅ Działa\n📊 Śledzi: {len(INSTRUMENTS)} spółek\n🕒 Ost. analiza: {last_check_time}"
-                send_telegram_message(msg)
+                status_msg = (
+                    f"<b>🤖 Status Marka Towarka</b>\n\n"
+                    f"✅ Maszyna działa\n"
+                    f"📊 Śledzi: {len(INSTRUMENTS)} spółek\n"
+                    f"🕒 Ost. analiza: {last_check_time}"
+                )
+                send_telegram_message(status_msg)
     except: pass
 
-# ================== GŁÓWNA ANALIZA (LOOP PO LIŚCIE) ==================
+# ================== GŁÓWNA ANALIZA ==================
 def analyze_market():
     global last_check_time
     now = datetime.now(timezone.utc)
     last_check_time = now.strftime("%H:%M:%S")
 
-    print(f"--- START ANALIZY: {len(INSTRUMENTS)} instrumentów ---")
+    print(f"[{last_check_time}] Rozpoczynam skanowanie {len(INSTRUMENTS)} instrumentów...")
 
-# Fragment wewnątrz analyze_market() w main.py:
+    for symbol in INSTRUMENTS:
+        try:
+            # 1. Anty-spam: Sprawdź cooldown dla konkretnej spółki
+            last_time = get_last_signal_time(symbol)
+            if last_time:
+                diff = (now - last_time).total_seconds()
+                if diff < COOLDOWN:
+                    continue # Pomijamy, bo niedawno był alert
 
-for symbol in INSTRUMENTS:
-    # 1. Sprawdź, czy ta konkretna spółka nie miała alertu niedawno
-    last_time = get_last_signal_time(symbol)
-    if last_time:
-        if (datetime.now(timezone.utc) - last_time).total_seconds() < COOLDOWN:
-            continue # Milczymy o tej spółce
+            # 2. Pobierz dane
+            prices, volumes = get_market_data(symbol)
+            if len(prices) < 20:
+                continue
 
-    # ... tutaj pobieranie danych i detekcja sygnałów ...
+            # 3. Wykryj sygnały
+            signals = []
+            v_signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
+            vol_signal = detect_volume_anomaly(volumes, multiplier=VOLUME_MULTIPLIER)
 
-    if signals:
-        # Wyślij alert
-        send_telegram_message(msg)
-        # 2. ZAPISZ czas wysłania TYLKO DLA TEJ SPÓŁKI
-        set_last_signal_time(symbol, datetime.now(timezone.utc))
+            if v_signal: signals.append(v_signal)
+            if vol_signal: signals.append(vol_signal)
 
-            # ... wysyłanie wiadomości ...
-            
-            send_telegram_message(msg)
-            
-            # ZAPAMIĘTAJ, że dla tej spółki już wysłałeś alert
-            set_last_signal_time(symbol, now)
-            add_signal(symbol, "akcje", signals, now)
+            # 4. Jeśli są sygnały - wyślij raport
+            if signals:
+                if is_night_silence(now):
+                    print(f"Sygnał dla {symbol} zignorowany (cisza nocna).")
+                    continue
+                
+                weight, groups = portfolio_context(symbol)
+                relevance = "Wysokie" if weight >= 0.3 else "Normalne" if weight > 0 else "Obserwowane"
+                
+                msg = f"📡 <b>Sygnał: {symbol}</b>\nStatus: {relevance} (~{int(weight*100)}%)\n\n"
+                for s in signals:
+                    msg += f"• <b>{s['type']}</b> ({s['value']})\n{s['message']}\n\n"
+                
+                send_telegram_message(msg)
+                
+                # 5. Zapamiętaj wysłanie alertu
+                set_last_signal_time(symbol, now)
+                add_signal(symbol, "akcje", signals, now)
+                
+                time.sleep(1) # Mała przerwa między tickerami
 
-            time.sleep(1) # Anty-spam Telegrama
+        except Exception as e:
+            print(f"Błąd przy analizie {symbol}: {e}")
 
+# ================== PĘTLA GŁÓWNA ==================
 if __name__ == "__main__":
+    print("🚀 Maszyna Marek Towarek URUCHOMIONA")
     while True:
         try:
             handle_telegram_commands()
             analyze_market()
         except Exception as e:
-            print(f"Błąd pętli: {e}")
-        time.sleep(60) # Sprawdzaj co minutę (ale cooldowny w funkcjach pilnują spamu)
+            print(f"KRYTYCZNY BŁĄD PĘTLI: {e}")
+        
+        # Czekaj 5 minut przed kolejnym sprawdzeniem całego rynku
+        # (cooldowny wewnątrz analyze_market i tak pilnują spamu)
+        time.sleep(300) 
