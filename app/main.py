@@ -26,9 +26,9 @@ def handle_telegram_commands():
         last_update_id = update["update_id"] + 1
 
         message = update.get("message", {})
-        text = message.get("text", "")
+        text = message.get("text", "").strip()
 
-        if text.strip() == "/status":
+        if text == "/status":
             response = (
                 "🤖 Status bota\n\n"
                 f"✅ Działa\n"
@@ -42,6 +42,22 @@ def handle_telegram_commands():
                 response += f"\n🕒 Ostatnia analiza: {last_check_time} UTC"
 
             send_telegram_message(response)
+
+        elif text == "/help":
+            response = (
+                "ℹ️ Pomoc – bot sygnałów rynkowych\n\n"
+                "Dostępne komendy:\n"
+                "/status – status bota i ostatnia analiza\n"
+                "/help – ta pomoc\n\n"
+                "Sygnały:\n"
+                "• PODWYŻSZONA_ZMIENNOŚĆ – wzrost zmienności ceny\n"
+                "• ANOMALIA_WOLUMENU – nietypowo wysoka aktywność rynku\n\n"
+                "Bot dostarcza informacji analitycznych.\n"
+                "Nie jest to rekomendacja inwestycyjna."
+            )
+
+            send_telegram_message(response)
+
 
 
 def analyze_market():
