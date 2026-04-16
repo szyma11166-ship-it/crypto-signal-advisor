@@ -9,10 +9,11 @@ from app.signals import (
 )
 from app.notifier import send_telegram_message, get_updates
 from app.state import get_last_signal_time, set_last_signal_time
+from app.portfolio import portfolio_exposure_to
 
 
-CHECK_INTERVAL = 3600   # 1h
-COOLDOWN = 10800        # 3h
+CHECK_INTERVAL = 3600   # co ile analizujemy rynek (sekundy) – 1h
+COOLDOWN = 10800        # minimalny odstęp między alertami – 3h
 
 last_update_id = None
 last_check_time = None
@@ -31,7 +32,7 @@ def handle_telegram_commands():
         if text == "/status":
             response = (
                 "🤖 Status bota\n\n"
-                f"✅ Działa\n"
+                "✅ Działa\n"
                 f"📊 Instrument: {INSTRUMENT}\n"
                 f"🏷️ Rynek: {MARKET_TYPE}\n"
                 f"⏱️ Interwał analizy: {CHECK_INTERVAL // 60} min\n"
@@ -59,7 +60,6 @@ def handle_telegram_commands():
             send_telegram_message(response)
 
 
-
 def analyze_market():
     global last_check_time
 
@@ -70,9 +70,9 @@ def analyze_market():
 
     signals = []
 
-    vol_signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
-    if vol_signal:
-        signals.append(vol_signal)
+    volatility_signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
+    if volatility_signal:
+        signals.append(volatility_signal)
 
     volume_signal = detect_volume_anomaly(volumes)
     if volume_signal:
@@ -87,10 +87,21 @@ def analyze_market():
         if diff < COOLDOWN:
             return
 
+    exposure = portfolio_exposure_to(INSTRUMENT)
+    if exposure >= 0.5:
+        relevance = "WYSOKIE"
+    elif exposure >= 0.2:
+        relevance = "ŚREDNIE"
+    elif exposure > 0:
+        relevance = "NISKIE"
+    else:
+        relevance = "BRAK"
+
     message = (
         "📡 *Sygnały rynkowe*\n\n"
         f"Instrument: `{INSTRUMENT}`\n"
-        f"Rynek: `{MARKET_TYPE}`\n\n"
+        f"Rynek: `{MARKET_TYPE}`\n"
+        f"Znaczenie dla portfela: *{relevance}*\n\n"
     )
 
     for s in signals:
