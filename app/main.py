@@ -9,17 +9,44 @@ from app.signals import (
 )
 from app.notifier import send_telegram_message, get_updates
 from app.state import get_last_signal_time, set_last_signal_time
-from app.portfolio import portfolio_exposure_to
 from app.history import add_signal, get_last_signal
 
 
-CHECK_INTERVAL = 3600   # co ile analizujemy rynek (sekundy) – 1h
-COOLDOWN = 10800        # minimalny odstęp między alertami – 3h
+CHECK_INTERVAL = 3600   # 1h
+COOLDOWN = 10800        # 3h
 
 last_update_id = None
 last_check_time = None
 
 
+# -------- POMOCNICZE: KONTEKST PORTFELA (GRUPY) --------
+def load_portfolio_groups():
+    import json
+    import os
+
+    path = "app/portfolio.json"
+    if not os.path.exists(path):
+        return {}
+
+    with open(path, "r") as f:
+        return json.load(f).get("groups", {})
+
+
+def portfolio_relevance_for_instrument(instrument: str):
+    groups = load_portfolio_groups()
+    total_weight = 0.0
+    hit_groups = []
+
+    for name, group in groups.items():
+        if instrument in group.get("instruments", []):
+            w = float(group.get("weight", 0))
+            total_weight += w
+            hit_groups.append((name, w))
+
+    return total_weight, hit_groups
+
+
+# -------- TELEGRAM COMMANDS --------
 def handle_telegram_commands():
     global last_update_id
 
@@ -30,7 +57,6 @@ def handle_telegram_commands():
         message = update.get("message", {})
         text = message.get("text", "").strip()
 
-        # /status
         if text == "/status":
             response = (
                 "🤖 Status bota\n\n"
@@ -46,27 +72,22 @@ def handle_telegram_commands():
 
             send_telegram_message(response)
 
-        # /help
         elif text == "/help":
             response = (
                 "ℹ️ Pomoc – bot sygnałów rynkowych\n\n"
-                "Dostępne komendy:\n"
-                "/status – status bota i ostatnia analiza\n"
-                "/last – ostatni zapisany sygnał\n"
-                "/help – ta pomoc\n\n"
-                "Sygnały:\n"
-                "• PODWYŻSZONA_ZMIENNOŚĆ – wzrost zmienności ceny\n"
-                "• ANOMALIA_WOLUMENU – nietypowo wysoka aktywność rynku\n\n"
-                "Bot dostarcza informacji analitycznych.\n"
+                "Komendy:\n"
+                "/status – status działania\n"
+                "/last   – ostatni zapisany sygnał\n"
+                "/help   – ta pomoc\n\n"
+                "Bot analizuje rynek i odnosi sygnały\n"
+                "do struktury Twojego portfela.\n"
                 "Nie jest to rekomendacja inwestycyjna."
             )
 
             send_telegram_message(response)
 
-        # /last
         elif text == "/last":
             last = get_last_signal()
-
             if not last:
                 send_telegram_message("❌ Brak zapisanych sygnałów.")
                 return
@@ -80,15 +101,15 @@ def handle_telegram_commands():
 
             for s in last["signals"]:
                 response += (
-                    f"• *{s['type']}* (wartość: `{s['value']}`)\n"
+                    f"• *{s['type']}* ({s['value']})\n"
                     f"  {s['message']}\n\n"
                 )
 
             response += "_Dane archiwalne – bez rekomendacji._"
-
             send_telegram_message(response)
 
 
+# -------- ANALIZA RYNKU --------
 def analyze_market():
     global last_check_time
 
@@ -99,13 +120,13 @@ def analyze_market():
 
     signals = []
 
-    volatility_signal = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
-    if volatility_signal:
-        signals.append(volatility_signal)
+    s1 = detect_volatility_signal(prices, VOLATILITY_THRESHOLD)
+    if s1:
+        signals.append(s1)
 
-    volume_signal = detect_volume_anomaly(volumes)
-    if volume_signal:
-        signals.append(volume_signal)
+    s2 = detect_volume_anomaly(volumes)
+    if s2:
+        signals.append(s2)
 
     if not signals:
         return
@@ -116,13 +137,13 @@ def analyze_market():
         if diff < COOLDOWN:
             return
 
-    # kontekst portfela
-    exposure = portfolio_exposure_to(INSTRUMENT)
-    if exposure >= 0.5:
+    weight, groups = portfolio_relevance_for_instrument(INSTRUMENT)
+
+    if weight >= 0.4:
         relevance = "WYSOKIE"
-    elif exposure >= 0.2:
+    elif weight >= 0.2:
         relevance = "ŚREDNIE"
-    elif exposure > 0:
+    elif weight > 0:
         relevance = "NISKIE"
     else:
         relevance = "BRAK"
@@ -131,12 +152,18 @@ def analyze_market():
         "📡 *Sygnały rynkowe*\n\n"
         f"Instrument: `{INSTRUMENT}`\n"
         f"Rynek: `{MARKET_TYPE}`\n"
-        f"Znaczenie dla portfela: *{relevance}*\n\n"
+        f"Znaczenie dla portfela: *{relevance}* (~{int(weight*100)}%)\n\n"
     )
+
+    if groups:
+        message += "Dotyczy grup:\n"
+        for g, w in groups:
+            message += f"• {g} ({int(w*100)}%)\n"
+        message += "\n"
 
     for s in signals:
         message += (
-            f"• *{s['type']}* (wartość: `{s['value']}`)\n"
+            f"• *{s['type']}* ({s['value']})\n"
             f"  {s['message']}\n\n"
         )
 
@@ -144,17 +171,11 @@ def analyze_market():
 
     send_telegram_message(message)
 
-    # zapis do historii
-    add_signal(
-        instrument=INSTRUMENT,
-        market=MARKET_TYPE,
-        signals=signals,
-        timestamp=now,
-    )
-
+    add_signal(INSTRUMENT, MARKET_TYPE, signals, now)
     set_last_signal_time(now)
 
 
+# -------- LOOP --------
 if __name__ == "__main__":
     while True:
         try:
