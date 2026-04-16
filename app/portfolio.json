@@ -1,14 +1,34 @@
 {
-  "AAPL": {
-    "weight": 0.40,
-    "direction": "long"
-  },
-  "MSFT": {
-    "weight": 0.35,
-    "direction": "long"
-  },
-  "SP500": {
-    "weight": 0.25,
-    "direction": "long"
+  "groups": {
+    "BIG_TECH": {
+      "weight": 0.30,
+      "description": "Amerykańskie big techy",
+      "instruments": ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN"]
+    },
+    "PL_BANKS": {
+      "weight": 0.20,
+      "description": "Polskie banki",
+      "instruments": ["PKN", "PKO", "PEO", "MBK", "SANTANDER"]
+    },
+    "PZU": {
+      "weight": 0.10,
+      "description": "PZU jako osobna ekspozycja",
+      "instruments": ["PZU"]
+    },
+    "GOLD": {
+      "weight": 0.15,
+      "description": "Złoto i ekspozycja defensywna",
+      "instruments": ["GOLD", "GLD", "XAUUSD"]
+    },
+    "MEDICAL": {
+      "weight": 0.15,
+      "description": "Medycyna i healthcare",
+      "instruments": ["JNJ", "PFE", "MRK", "ABBV", "UNH"]
+    },
+    "DEFENSE": {
+      "weight": 0.10,
+      "description": "Zbrojeniówka i obronność",
+      "instruments": ["LMT", "RTX", "NOC", "BAE"]
+    }
   }
 }
