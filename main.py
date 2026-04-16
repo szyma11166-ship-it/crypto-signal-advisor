@@ -220,14 +220,15 @@ def analyze_market():
     add_signal(INSTRUMENT, "akcje", signals, now)
     set_last_signal_time(now)
 
-
 # ================== PĘTLA ==================
 if __name__ == "__main__":
+    print("--- MAREK TOWAREK URUCHAMIA SIĘ ---") # To musi się pojawić w logach!
     while True:
         try:
+            print(f"Sprawdzam komendy i rynek... {datetime.now()}")
             handle_telegram_commands()
             analyze_market()
         except Exception as e:
-            print("Błąd pętli głównej:", e)
+            print("BŁĄD KRYTYCZNY PĘTLI:", e)
 
         time.sleep(30)
