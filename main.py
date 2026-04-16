@@ -107,17 +107,25 @@ def analyze_market():
         if vol_signal: signals.append(vol_signal)
 
         if signals:
-            if is_night_silence(now): continue
+            # Sprawdź cooldown DLA TEJ KONKRETNEJ SPÓŁKI
+            last_time = get_last_signal_time(symbol)
+            if last_time:
+                diff = (now - last_time).total_seconds()
+                if diff < COOLDOWN:
+                    print(f"Pominięto {symbol} - cooldown (jeszcze {int((COOLDOWN-diff)/60)} min)")
+                    continue 
+
+            if is_night_silence(now):
+                continue
             
-            weight, groups = portfolio_context(symbol)
-            relevance = "Wysokie" if weight >= 0.3 else "Normalne" if weight > 0 else "Obserwowane"
-            
-            msg = f"📡 <b>Sygnał: {symbol}</b>\nStatus: {relevance} (~{int(weight*100)}%)\n\n"
-            for s in signals:
-                msg += f"• <b>{s['type']}</b> ({s['value']})\n{s['message']}\n\n"
+            # ... wysyłanie wiadomości ...
             
             send_telegram_message(msg)
+            
+            # ZAPAMIĘTAJ, że dla tej spółki już wysłałeś alert
+            set_last_signal_time(symbol, now)
             add_signal(symbol, "akcje", signals, now)
+
             time.sleep(1) # Anty-spam Telegrama
 
 if __name__ == "__main__":
