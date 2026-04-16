@@ -20,4 +20,4 @@ def portfolio_exposure_to(instrument: str):
         return 0.0
 
     return float(position.get("weight", 0.0))
-``
+
