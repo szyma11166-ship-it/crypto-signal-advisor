@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
@@ -28,49 +29,47 @@ def calculate_rsi(prices, period=14):
 def calculate_ema(prices, period=200):
     if len(prices) < period:
         return None
+    # pd.Series potrzebuje importu pandas as pd na górze pliku
     return pd.Series(prices).ewm(span=period, adjust=False).mean().iloc[-1]
 
 def detect_market_signals(prices, volumes, volatility_threshold, vol_multiplier):
     signals = []
+    if len(prices) < 20: return signals
+    
     current_price = prices[-1]
-    
-    # --- 1. RSI (Termometr) ---
     rsi = calculate_rsi(prices)
-    
-    # --- 2. EMA 200 (Kompas) ---
-    import pandas as pd # potrzebne do ewm
     ema200 = calculate_ema(prices, 200)
     
-    # --- 3. Logika Sygnałów Inteligentnych ---
+    # LOGIKA SYGNAŁÓW
     if rsi < 30:
         if ema200 and current_price > ema200:
             signals.append({
                 "type": "🔥 MOCNE KUPUJ (Pullback)",
                 "value": f"RSI: {rsi:.1f}",
-                "message": "Cena w trendzie wzrostowym (nad EMA200) zaliczyła korektę. Statystycznie to świetny moment na wejście."
+                "message": "Trend wzrostowy (nad EMA200) + wyprzedanie. Okazja!"
             })
         else:
             signals.append({
                 "type": "⚠️ WYPRZEDANIE (Ryzyko)",
                 "value": f"RSI: {rsi:.1f}",
-                "message": "Cena jest nisko, ALE trend jest spadkowy (pod EMA200). Uważaj na łapanie spadającego noża!"
+                "message": "Tanio, ale trend jest spadkowy. Możliwe dalsze spadki."
             })
             
     if rsi > 70:
         signals.append({
             "type": "🔔 WYSOKIE RSI",
             "value": f"RSI: {rsi:.1f}",
-            "message": "Spółka może być przegrzana. Rozważ realizację zysków."
+            "message": "Spółka przegrzana. Możliwa korekta."
         })
 
-    # --- 4. Wolumen (Potwierdzenie) ---
+    # Wolumen
     avg_vol = np.mean(volumes[-20:-1])
     current_vol = volumes[-1]
     if current_vol > avg_vol * vol_multiplier:
         signals.append({
             "type": "📊 SKOK WOLUMENU",
             "value": f"x{current_vol/avg_vol:.1f}",
-            "message": "Nietypowa aktywność! Gruby kapitał wszedł do gry."
+            "message": "Gruby kapitał wszedł do gry."
         })
 
     return signals
