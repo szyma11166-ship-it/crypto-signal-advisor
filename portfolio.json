@@ -1,44 +1,16 @@
 {
   "groups": {
-    "BIG_TECH": {
-      "weight": 0.30,
-      "description": "Duże spółki technologiczne i konsumenckie USA",
-      "instruments": [
-        "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN",
-        "TSLA", "NFLX", "ORCL", "IBM", "ADBE",
-        "MCD", "COST", "PEP"
-      ]
+    "GPW_POLSKA": {
+      "weight": 0.55,
+      "instruments": ["PKO", "PEO", "PKN", "PZU", "ING", "KGH", "ALE", "LPP", "DNP", "XTB", "KTY", "11B", "SNT", "PHT", "SN2"]
     },
-    "PL_BANKS_FIN": {
-      "weight": 0.30,
-      "description": "Polskie banki i PZU",
-      "instruments": [
-        "PKO", "PEO", "MBK", "SANTANDER", "ING",
-        "PZU"
-      ]
+    "USA_TECH_DIV": {
+      "weight": 0.35,
+      "instruments": ["NVDA", "MSFT", "GOOGL", "META", "LMT", "MCD", "NVO", "VLO", "CVX"]
     },
-    "GOLD": {
-      "weight": 0.15,
-      "description": "Złoto i aktywa defensywne",
-      "instruments": [
-        "GOLD", "GLD", "XAUUSD"
-      ]
-    },
-    "MEDICAL": {
-      "weight": 0.15,
-      "description": "Medycyna i healthcare",
-      "instruments": [
-        "JNJ", "PFE", "MRK", "ABBV", "UNH",
-        "NOVO", "BMY", "GSK", "SANOFI"
-      ]
-    },
-    "DEFENSE": {
+    "COMMODITIES": {
       "weight": 0.10,
-      "description": "Zbrojeniówka i obronność",
-      "instruments": [
-        "LMT", "RTX", "NOC", "BAE",
-        "GD", "SAAB", "THALES"
-      ]
+      "instruments": ["4GLD"]
     }
   }
 }
