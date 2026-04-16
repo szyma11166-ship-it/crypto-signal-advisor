@@ -7,9 +7,8 @@ from app.signals import detect_volatility_signal
 from app.notifier import send_telegram_message, get_updates
 from app.state import get_last_signal_time, set_last_signal_time
 
-
-CHECK_INTERVAL = 3600      # 1h analiza rynku
-COOLDOWN = 10800           # 3h cooldown sygnałów
+CHECK_INTERVAL = 3600
+COOLDOWN = 10800
 
 last_update_id = None
 last_check_time = None
@@ -27,16 +26,16 @@ def handle_telegram_commands():
 
         if text.strip() == "/status":
             response = (
-                "🤖 *Status bota*\n\n"
+                "🤖 Status bota\n\n"
                 f"✅ Działa\n"
-                f"📊 Instrument: `{INSTRUMENT}`\n"
-                f"🏷️ Rynek: `{MARKET_TYPE}`\n"
+                f"📊 Instrument: {INSTRUMENT}\n"
+                f"🏷️ Rynek: {MARKET_TYPE}\n"
                 f"⏱️ Interwał analizy: {CHECK_INTERVAL // 60} min\n"
                 f"🔕 Cooldown alertów: {COOLDOWN // 3600} h\n"
             )
 
             if last_check_time:
-                response += f"\n🕒 Ostatnia analiza: `{last_check_time}` UTC"
+                response += f"\n🕒 Ostatnia analiza: {last_check_time} UTC"
 
             send_telegram_message(response)
 
@@ -61,13 +60,13 @@ def analyze_market():
             return
 
     message = (
-        "📡 *Sygnał rynkowy*\n\n"
-        f"Instrument: `{INSTRUMENT}`\n"
-        f"Rynek: `{MARKET_TYPE}`\n"
-        f"Typ: *{signal['type']}*\n"
-        f"Wartość: `{signal['value']}`\n\n"
+        "📡 Sygnał rynkowy\n\n"
+        f"Instrument: {INSTRUMENT}\n"
+        f"Rynek: {MARKET_TYPE}\n"
+        f"Typ: {signal['type']}\n"
+        f"Wartość: {signal['value']}\n\n"
         f"{signal['message']}\n\n"
-        "_Informacja analityczna – bez rekomendacji._"
+        "Informacja analityczna – bez rekomendacji."
     )
 
     send_telegram_message(message)
@@ -79,7 +78,7 @@ if __name__ == "__main__":
         try:
             handle_telegram_commands()
             analyze_market()
-        except Exception as error:
-            print("Błąd:", error)
+        except Exception as e:
+            print("Błąd:", e)
 
         time.sleep(30)
