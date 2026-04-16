@@ -23,3 +23,23 @@ def detect_volatility_signal(prices: list, threshold: float):
         }
 
     return None
+
+
+def detect_volume_anomaly(volumes: list, multiplier: float = 2.0):
+    if len(volumes) < 20:
+        return None
+
+    average_volume = statistics.mean(volumes[:-1])
+    last_volume = volumes[-1]
+
+    if last_volume > average_volume * multiplier:
+        return {
+            "type": "ANOMALIA_WOLUMENU",
+            "value": round(last_volume / average_volume, 2),
+            "message": (
+                "Ostatni wolumen był znacząco wyższy niż średnia. "
+                "Może to wskazywać na zwiększoną aktywność uczestników rynku."
+            ),
+        }
+
+    return None
