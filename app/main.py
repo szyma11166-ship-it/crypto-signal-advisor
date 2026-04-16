@@ -10,6 +10,7 @@ from app.signals import (
 from app.notifier import send_telegram_message, get_updates
 from app.state import get_last_signal_time, set_last_signal_time
 from app.portfolio import portfolio_exposure_to
+from app.history import add_signal, get_last_signal
 
 
 CHECK_INTERVAL = 3600   # co ile analizujemy rynek (sekundy) – 1h
@@ -29,6 +30,7 @@ def handle_telegram_commands():
         message = update.get("message", {})
         text = message.get("text", "").strip()
 
+        # /status
         if text == "/status":
             response = (
                 "🤖 Status bota\n\n"
@@ -44,11 +46,13 @@ def handle_telegram_commands():
 
             send_telegram_message(response)
 
+        # /help
         elif text == "/help":
             response = (
                 "ℹ️ Pomoc – bot sygnałów rynkowych\n\n"
                 "Dostępne komendy:\n"
                 "/status – status bota i ostatnia analiza\n"
+                "/last – ostatni zapisany sygnał\n"
                 "/help – ta pomoc\n\n"
                 "Sygnały:\n"
                 "• PODWYŻSZONA_ZMIENNOŚĆ – wzrost zmienności ceny\n"
@@ -56,6 +60,31 @@ def handle_telegram_commands():
                 "Bot dostarcza informacji analitycznych.\n"
                 "Nie jest to rekomendacja inwestycyjna."
             )
+
+            send_telegram_message(response)
+
+        # /last
+        elif text == "/last":
+            last = get_last_signal()
+
+            if not last:
+                send_telegram_message("❌ Brak zapisanych sygnałów.")
+                return
+
+            response = (
+                "🕒 *Ostatni sygnał*\n\n"
+                f"Instrument: `{last['instrument']}`\n"
+                f"Rynek: `{last['market']}`\n"
+                f"Czas: `{last['timestamp']}`\n\n"
+            )
+
+            for s in last["signals"]:
+                response += (
+                    f"• *{s['type']}* (wartość: `{s['value']}`)\n"
+                    f"  {s['message']}\n\n"
+                )
+
+            response += "_Dane archiwalne – bez rekomendacji._"
 
             send_telegram_message(response)
 
@@ -87,6 +116,7 @@ def analyze_market():
         if diff < COOLDOWN:
             return
 
+    # kontekst portfela
     exposure = portfolio_exposure_to(INSTRUMENT)
     if exposure >= 0.5:
         relevance = "WYSOKIE"
@@ -113,6 +143,15 @@ def analyze_market():
     message += "_Informacja analityczna – bez rekomendacji._"
 
     send_telegram_message(message)
+
+    # zapis do historii
+    add_signal(
+        instrument=INSTRUMENT,
+        market=MARKET_TYPE,
+        signals=signals,
+        timestamp=now,
+    )
+
     set_last_signal_time(now)
 
 
