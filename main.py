@@ -17,6 +17,22 @@ from config import (
 from signals import detect_market_signals
 from notifier import send_telegram_message, get_updates
 
+def send_telegram_photo(photo_path):
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+
+    if not token or not chat_id:
+        return
+
+    url = f"https://api.telegram.org/bot{token}/sendPhoto"
+
+    try:
+        with open(photo_path, "rb") as photo:
+            files = {"photo": photo}
+            data = {"chat_id": chat_id}
+            requests.post(url, data=data, files=files, timeout=10)
+    except Exception as e:
+        print(f"❌ Nie udało się wysłać zdjęcia: {e}")
 
 # =====================================================
 # REDIS – JEDYNE ŹRÓDŁO STANU
