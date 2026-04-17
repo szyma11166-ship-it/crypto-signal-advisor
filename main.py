@@ -182,7 +182,7 @@ def handle_telegram_commands():
 
     for upd in updates:
         last_update_id = upd["update_id"] + 1
-        text = upd.get("message", {}).get("text", "").strip()
+        text = upd.get("message", {}).get("text", "").strip().split('@')[0]
 
         if text == "/status":
             send_telegram_message(
