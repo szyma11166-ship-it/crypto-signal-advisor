@@ -242,8 +242,8 @@ def handle_telegram_commands():
                 
         elif text == "/papaj":
             send_telegram_message("💛 21:37 💛\nPan kiedyś stanął nad brzegiem...")
-            # Odkomentuj poniższą linię i podaj ścieżkę do pliku, jeśli bot ma wysyłać zdjęcie:
-            # send_telegram_photo("sciezka/do/papaja.jpg")
+            # Poniższa linijka wysyła zdjęcie z głównego folderu
+            send_telegram_photo("papaj.png")
 
         elif text == "/help":
             send_telegram_message(
