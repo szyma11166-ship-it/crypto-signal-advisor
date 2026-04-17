@@ -1,5 +1,6 @@
 import os
 import time
+import ast
 from datetime import datetime, timezone
 
 import requests
@@ -21,11 +22,11 @@ from notifier import send_telegram_message, get_updates
 # REDIS
 # =====================================================
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 
 def get_last_signal_time(symbol: str):
-    ts = redis_client.get(f"cooldown:{symbol}")
+    ts = r.get(f"cooldown:{symbol}")
     if not ts:
         return None
     try:
@@ -35,27 +36,44 @@ def get_last_signal_time(symbol: str):
 
 
 def set_last_signal_time(symbol: str, dt: datetime):
-    redis_client.set(f"cooldown:{symbol}", dt.isoformat())
+    r.set(f"cooldown:{symbol}", dt.isoformat())
 
 
-def save_signal(symbol: str, signal: dict, dt: datetime, max_items=100):
+def save_signal(symbol: str, signal: dict, dt: datetime, max_items=50):
     key = f"signals:{symbol}"
     entry = {
         "time": dt.isoformat(),
+        "symbol": symbol,
         "category": signal["category"],
         "title": signal["title"],
         "risk": signal["risk"],
         "message": signal["message"],
     }
-    redis_client.lpush(key, str(entry))
-    redis_client.ltrim(key, 0, max_items - 1)
+    r.lpush(key, str(entry))
+    r.ltrim(key, 0, max_items - 1)
+
+
+def get_last_signals(limit_per_symbol=1, max_symbols=5):
+    """
+    Zwraca ostatnie sygnały z Redis dla kilku spółek.
+    """
+    results = []
+    for symbol in INSTRUMENTS[:max_symbols]:
+        key = f"signals:{symbol}"
+        items = r.lrange(key, 0, limit_per_symbol - 1)
+        for item in items:
+            try:
+                results.append(ast.literal_eval(item))
+            except Exception:
+                pass
+    return results
 
 
 # =====================================================
 # USTAWIENIA OGÓLNE
 # =====================================================
-SILENCE_START = 0   # 00:00
-SILENCE_END = 6     # 06:00
+SILENCE_START = 0
+SILENCE_END = 6
 CHECK_INTERVAL = 300  # 5 minut
 
 last_update_id = None
@@ -88,7 +106,7 @@ def portfolio_context(symbol: str) -> float:
 
 
 # =====================================================
-# DANE RYNKOWE – PODZIAŁ ŹRÓDEŁ
+# DANE RYNKOWE
 # =====================================================
 def to_float_list(seq):
     result = []
@@ -106,22 +124,21 @@ def to_float_list(seq):
 def get_market_data(symbol: str):
     symbol = symbol.upper()
 
-    # ✅ TWARDY PODZIAŁ
     GPW_SYMBOLS = {
         "PKO", "PEO", "PKN", "PZU", "ING", "KGH",
         "ALE", "LPP", "DNP", "XTB", "KTY",
         "11B", "CDR", "PHT", "SN2", "SNK", "SNT"
     }
 
-    # ---------------- GPW → STOOQ ----------------
+    # ---------- GPW → STOOQ ----------
     if symbol in GPW_SYMBOLS:
         url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
         try:
-            r = requests.get(url, timeout=10)
-            if r.status_code != 200:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code != 200:
                 return [], []
 
-            lines = r.text.splitlines()[1:]
+            lines = resp.text.splitlines()[1:]
             prices, volumes = [], []
 
             for row in lines[-300:]:
@@ -134,7 +151,7 @@ def get_market_data(symbol: str):
         except Exception:
             return [], []
 
-    # ---------------- USA / EU → YAHOO ----------------
+    # ---------- USA / EU → YAHOO ----------
     try:
         data = yf.download(symbol, period="1y", interval="1d", progress=False)
         if data.empty:
@@ -148,7 +165,7 @@ def get_market_data(symbol: str):
 
 
 # =====================================================
-# TELEGRAM
+# TELEGRAM – KOMENDY
 # =====================================================
 def handle_telegram_commands():
     global last_update_id
@@ -162,18 +179,47 @@ def handle_telegram_commands():
             last_update_id = update["update_id"] + 1
             text = update.get("message", {}).get("text", "").strip()
 
+            print(f"[CMD] {text}")
+
             if text == "/status":
                 msg = (
-                    "🤖 Bot aktywny\n\n"
+                    "🤖 <b>Status bota</b>\n\n"
                     f"🕒 Ostatni skan: {last_check_time}\n"
+                    f"📈 Interwał danych: D1\n"
                     f"⏳ Cooldown: {COOLDOWN // 3600} h\n"
-                    "📈 Interwał: D1\n"
-                    "🧠 Storage: Redis"
+                    f"🌙 Cisza nocna: 00–06\n"
+                    f"🧠 Storage: Redis\n"
+                    f"📊 Liczba instrumentów: {len(INSTRUMENTS)}"
                 )
                 send_telegram_message(msg)
 
-    except Exception:
-        pass
+            elif text == "/help":
+                send_telegram_message(
+                    "📖 <b>Dostępne komendy</b>\n\n"
+                    "/status – stan bota\n"
+                    "/last – ostatnie sygnały\n"
+                    "/help – pomoc\n\n"
+                    "Bot analizuje rynek i wysyła sygnały kontekstowe."
+                )
+
+            elif text == "/last":
+                last_signals = get_last_signals(limit_per_symbol=1, max_symbols=10)
+                if not last_signals:
+                    send_telegram_message("Brak zapisanych sygnałów.")
+                else:
+                    msg = "📡 <b>Ostatnie sygnały</b>\n\n"
+                    for s in last_signals:
+                        msg += (
+                            f"<b>{s['symbol']}</b>\n"
+                            f"{s['title']}\n"
+                            f"Typ: {s['category']}\n"
+                            f"Ryzyko: {s['risk']}\n"
+                            f"{s['message']}\n\n"
+                        )
+                    send_telegram_message(msg)
+
+    except Exception as e:
+        print(f"❌ Błąd komend: {e}")
 
 
 # =====================================================
@@ -189,7 +235,6 @@ def analyze_market():
 
     for symbol in INSTRUMENTS:
         try:
-            # ---------- cooldown ----------
             last_time = get_last_signal_time(symbol)
             if last_time and (now - last_time).total_seconds() < COOLDOWN:
                 continue
