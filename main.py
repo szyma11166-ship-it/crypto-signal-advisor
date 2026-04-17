@@ -141,35 +141,48 @@ def to_float_list(seq):
 def get_market_data(symbol):
     symbol = symbol.upper()
 
-    # ---------- GPW → STOOQ ----------
-    if symbol in GPW_SYMBOLS:
+    # ✅ JEDYNA LISTA YAHOO (jawna)
+    YAHOO_SYMBOLS = {
+        # USA
+        "AAPL", "AMZN", "META", "MSFT", "NVDA",
+        "TSLA", "MCD", "COST", "JPM", "GS",
+        "LMT", "RTX", "XOM", "CVX", "VLO",
+        "AMD", "INTC", "IBM", "ORCL",
+        # Europa
+        "ASML", "SAP", "NESN.SW", "AIR.PA", "RHM.DE",
+        # ETF / surowce
+        "GLD", "SLV", "4GLD.DE"
+    }
+
+    # ================= YAHOO =================
+    if symbol in YAHOO_SYMBOLS:
         try:
-            url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
-            resp = requests.get(url, timeout=10)
-            if resp.status_code != 200:
+            data = yf.download(symbol, period="1y", interval="1d", progress=False)
+            if data.empty:
                 return [], []
 
-            lines = resp.text.splitlines()[1:]
-            prices, volumes = [], []
-
-            for row in lines[-300:]:
-                p = row.split(",")
-                if len(p) >= 6:
-                    prices.append(float(p[4]))   # close
-                    volumes.append(float(p[5]))  # volume
-
+            prices = to_float_list(data["Close"].values)
+            volumes = to_float_list(data["Volume"].values)
             return prices, volumes
         except Exception:
             return [], []
 
-    # ---------- USA / EU → YAHOO ----------
+    # ================= DOMYŚLNIE: GPW → STOOQ =================
     try:
-        data = yf.download(symbol, period="1y", interval="1d", progress=False)
-        if data.empty:
+        url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
+        resp = requests.get(url, timeout=10)
+        if resp.status_code != 200:
             return [], []
 
-        prices = to_float_list(data["Close"].values)
-        volumes = to_float_list(data["Volume"].values)
+        lines = resp.text.splitlines()[1:]
+        prices, volumes = [], []
+
+        for row in lines[-300:]:
+            parts = row.split(",")
+            if len(parts) >= 6:
+                prices.append(float(parts[4]))
+                volumes.append(float(parts[5]))
+
         return prices, volumes
     except Exception:
         return [], []
