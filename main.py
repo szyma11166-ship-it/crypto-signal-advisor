@@ -206,6 +206,34 @@ def handle_telegram_commands():
                 f"Zmiana zachowania: {r.get('stats:BEHAVIOR_CHANGE') or 0}"
             )
 
+elif text == "/last":
+    messages = []
+    # bierzemy ostatnie sygnały ze wszystkich spółek
+    for symbol in ALL_SYMBOLS:
+        items = r.lrange(f"signals:{symbol}", 0, 0)
+        if items:
+            try:
+                messages.append(ast.literal_eval(items[0]))
+            except Exception:
+                pass
+
+    if not messages:
+        send_telegram_message("Brak zapisanych sygnałów.")
+    else:
+        # sortujemy po czasie malejąco
+        messages.sort(key=lambda x: x["time"], reverse=True)
+
+        msg = "📡 <b>Ostatnie sygnały</b>\n\n"
+        for s in messages[:5]:  # max 5 ostatnich
+            msg += (
+                f"<b>{s['symbol']}</b>\n"
+                f"{s['title']}\n"
+                f"Werdykt: <b>{s['verdict']}</b>\n"
+                f"{s['message']}\n\n"
+            )
+
+        send_telegram_message(msg)
+        
         elif text == "/help":
             send_telegram_message(
                 "/status – status bota\n"
