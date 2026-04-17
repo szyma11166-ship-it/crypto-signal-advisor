@@ -190,17 +190,13 @@ def handle_telegram_commands():
         last_update_id = upd["update_id"] + 1
         text = upd.get("message", {}).get("text", "").strip()
 
-        # ---------- /status ----------
         if text == "/status":
             send_telegram_message(
                 f"🤖 Status bota\n\n"
                 f"Ostatni skan: {last_check_time}\n"
-                f"Spółek w radarze: {len(ALL_SYMBOLS)}\n"
-                f"Interwał analizy: 5 min\n"
-                f"Storage: Redis"
+                f"Spółek w radarze: {len(ALL_SYMBOLS)}"
             )
 
-        # ---------- /stats ----------
         elif text == "/stats":
             send_telegram_message(
                 f"📊 Statystyki\n\n"
@@ -210,10 +206,8 @@ def handle_telegram_commands():
                 f"Zmiana zachowania: {r.get('stats:BEHAVIOR_CHANGE') or 0}"
             )
 
-        # ---------- /last ----------
         elif text == "/last":
             messages = []
-
             for symbol in ALL_SYMBOLS:
                 items = r.lrange(f"signals:{symbol}", 0, 0)
                 if items:
@@ -226,7 +220,6 @@ def handle_telegram_commands():
                 send_telegram_message("Brak zapisanych sygnałów.")
             else:
                 messages.sort(key=lambda x: x["time"], reverse=True)
-
                 msg = "📡 Ostatnie sygnały\n\n"
                 for s in messages[:5]:
                     msg += (
@@ -234,19 +227,20 @@ def handle_telegram_commands():
                         f"{s['title']}\n"
                         f"Werdykt: {s['verdict']}\n\n"
                     )
-
                 send_telegram_message(msg)
 
-        # ---------- /help ----------
+        elif text == "/papaji":
+            send_telegram_photo("papaj.png")
+
         elif text == "/help":
             send_telegram_message(
-                "Zgubiłeś się? :(\n"
                 "/status – status bota\n"
                 "/stats – statystyki\n"
                 "/last – ostatnie sygnały\n"
-                "/help – pomoc"
+                "/help – pomoc\n"
+                "/papaj"
             )
-
+``
 
 # =====================================================
 # ANALIZA RYNKU (ZMIANA STANU, NIE CZAS)
