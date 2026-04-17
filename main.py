@@ -127,8 +127,14 @@ def analyze_market():
             )
 
             msg = f"📡 <b>{symbol}</b> ({relevance})\n\n"
-            for s in signals:
-                msg += f"<b>{s['type']}</b>\n{s['message']}\n\n"
+     
+for s in signals:
+    msg += (
+        f"<b>{s['title']}</b>\n"
+        f"Typ: {s['category']}\n"
+        f"Ryzyko: {s['risk']}\n"
+        f"{s['message']}\n\n"
+    )
 
             send_telegram_message(msg)
             set_last_signal_time(symbol, now)
