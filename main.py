@@ -239,6 +239,11 @@ def handle_telegram_commands():
                 for s in messages[:5]:
                     msg += f"• {s['symbol']}: {s['verdict']} ({s['title']})\n"
                 send_telegram_message(msg)
+                
+        elif text == "/papaj":
+            send_telegram_message("💛 21:37 💛\nPan kiedyś stanął nad brzegiem...")
+            # Odkomentuj poniższą linię i podaj ścieżkę do pliku, jeśli bot ma wysyłać zdjęcie:
+            # send_telegram_photo("sciezka/do/papaja.jpg")
 
         elif text == "/help":
             send_telegram_message(
