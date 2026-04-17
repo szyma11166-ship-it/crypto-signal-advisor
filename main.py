@@ -186,7 +186,7 @@ def handle_telegram_commands():
 
         if text == "/status":
             send_telegram_message(
-                f"🤖 **Status bota**\n\n"
+                f"🤖 Status bota\n\n"
                 f"Ostatni skan: {last_check_time}\n"
                 f"Spółek w radarze: {len(ALL_SYMBOLS)}\n"
                 f"Tryb ciszy: {SILENCE_START}:00 – {SILENCE_END}:00 (Czas PL)"
@@ -196,18 +196,18 @@ def handle_telegram_commands():
             gpw = [s for s in ALL_SYMBOLS if s in GPW_SYMBOLS]
             usa = [s for s in ALL_SYMBOLS if s in YAHOO_SYMBOLS]
             
-            msg = "🏢 **Obsługiwane spółki:**\n\n"
-            msg += "🇵🇱 **GPW:** " + ", ".join(gpw) + "\n\n"
-            msg += "🌎 **USA / Europa / ETF:** " + ", ".join(usa)
+            msg = "🏢 Obsługiwane spółki:\n\n"
+            msg += "🇵🇱 GPW: " + ", ".join(gpw) + "\n\n"
+            msg += "🌎 USA / Europa / ETF: " + ", ".join(usa)
             send_telegram_message(msg)
 
         elif text == "/info":
             msg = (
-                "⚙️ **Logika wyliczania sygnałów**\n\n"
+                "⚙️ Logika wyliczania sygnałów\n\n"
                 "Bot analizuje dane historyczne (ostatnie 300 sesji) pod kątem trzech kluczowych parametrów:\n\n"
-                f"1️⃣ **Zmienność ($V_{{ola}}$):** Wyliczana jako odchylenie standardowe zmian procentowych. Sygnał generowany, gdy bieżąca zmienność przekracza próg `{VOLATILITY_THRESHOLD * 100}%`.\n"
-                f"2️⃣ **Wolumen ($Vol$):** Porównanie bieżącego wolumenu do średniej ruchomej. Wymagane przebicie średniej o mnożnik `{VOLUME_MULTIPLIER}`x.\n"
-                "3️⃣ **Zmiana Zachowania:** Bot wykrywa anomalie, gdy cena zachowuje się nietypowo względem trendu z ostatnich 50 dni.\n\n"
+                f"1️⃣ Zmienność ($V_{{ola}}$): Wyliczana jako odchylenie standardowe zmian procentowych. Sygnał generowany, gdy bieżąca zmienność przekracza próg `{VOLATILITY_THRESHOLD * 100}%`.\n"
+                f"2️⃣ Wolumen ($Vol$): Porównanie bieżącego wolumenu do średniej ruchomej. Wymagane przebicie średniej o mnożnik `{VOLUME_MULTIPLIER}`x.\n"
+                "3️⃣ Zmiana Zachowania: Bot wykrywa anomalie, gdy cena zachowuje się nietypowo względem trendu z ostatnich 50 dni.\n\n"
                 "Kategorie sygnałów:\n"
                 "• `TREND_CONFIRMATION` - Silny ruch zgodnie z trendem.\n"
                 "• `CONTRARIAN` - Przegrzanie rynku / sygnał odwrotu.\n"
@@ -217,7 +217,7 @@ def handle_telegram_commands():
 
         elif text == "/stats":
             send_telegram_message(
-                f"📊 **Statystyki**\n\n"
+                f"📊 Statystyki\n\n"
                 f"Łącznie: {r.get('stats:total') or 0}\n"
                 f"Trendowe: {r.get('stats:TREND_CONFIRMATION') or 0}\n"
                 f"Kontrariańskie: {r.get('stats:CONTRARIAN') or 0}\n"
@@ -235,14 +235,14 @@ def handle_telegram_commands():
                 send_telegram_message("Brak zapisanych sygnałów.")
             else:
                 messages.sort(key=lambda x: x["time"], reverse=True)
-                msg = "📡 **Ostatnie sygnały**\n\n"
+                msg = "📡 Ostatnie sygnały\n\n"
                 for s in messages[:5]:
-                    msg += f"• **{s['symbol']}**: {s['verdict']} ({s['title']})\n"
+                    msg += f"• {s['symbol']}: {s['verdict']} ({s['title']})\n"
                 send_telegram_message(msg)
 
         elif text == "/help":
             send_telegram_message(
-                "📖 **Dostępne komendy:**\n"
+                "📖 *Dostępne komendy:*\n"
                 "/status - Stan pracy bota\n"
                 "/list - Spis wszystkich spółek\n"
                 "/info - Jak bot liczy sygnały\n"
@@ -276,10 +276,10 @@ def analyze_market():
             market = "GPW" if symbol in GPW_SYMBOLS else "USA/ETF"
 
             msg = (
-                f"📡 **{company} ({symbol})**\n"
+                f"📡 {company} ({symbol})\n"
                 f"Rynek: {market}\n\n"
                 f"Sytuacja: {s['title']}\n"
-                f"Werdykt: **{verdict}**\n"
+                f"Werdykt: {verdict}\n"
                 f"Ryzyko: {s['risk']}\n\n"
                 f"{s['message']}"
             )
