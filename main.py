@@ -287,3 +287,7 @@ if __name__ == "__main__":
             last_command_check = now_ts
 
         if now_ts - last_market_check >= MARKET_ANALYSIS_INTERVAL:
+            analyze_market()
+            last_market_check = now_ts
+
+        time.sleep(1)
