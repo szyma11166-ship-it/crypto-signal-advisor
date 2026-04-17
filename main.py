@@ -17,20 +17,25 @@ from signals import detect_market_signals
 from notifier import send_telegram_message, get_updates
 
 
-# ================== REDIS ==================
+# =====================================================
+# REDIS
+# =====================================================
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 
 def get_last_signal_time(symbol: str):
-    ts = r.get(f"cooldown:{symbol}")
+    ts = redis_client.get(f"cooldown:{symbol}")
     if not ts:
         return None
-    return datetime.fromisoformat(ts)
+    try:
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
 
 
 def set_last_signal_time(symbol: str, dt: datetime):
-    r.set(f"cooldown:{symbol}", dt.isoformat())
+    redis_client.set(f"cooldown:{symbol}", dt.isoformat())
 
 
 def save_signal(symbol: str, signal: dict, dt: datetime, max_items=100):
@@ -42,11 +47,13 @@ def save_signal(symbol: str, signal: dict, dt: datetime, max_items=100):
         "risk": signal["risk"],
         "message": signal["message"],
     }
-    r.lpush(key, str(entry))
-    r.ltrim(key, 0, max_items - 1)
+    redis_client.lpush(key, str(entry))
+    redis_client.ltrim(key, 0, max_items - 1)
 
 
-# ================== USTAWIENIA OGÓLNE ==================
+# =====================================================
+# USTAWIENIA OGÓLNE
+# =====================================================
 SILENCE_START = 0   # 00:00
 SILENCE_END = 6     # 06:00
 CHECK_INTERVAL = 300  # 5 minut
@@ -59,7 +66,9 @@ def is_night_silence(now: datetime) -> bool:
     return SILENCE_START <= now.hour < SILENCE_END
 
 
-# ================== PORTFEL ==================
+# =====================================================
+# PORTFEL
+# =====================================================
 def portfolio_context(symbol: str) -> float:
     import json
 
@@ -78,7 +87,9 @@ def portfolio_context(symbol: str) -> float:
         return 0.0
 
 
-# ================== DANE RYNKOWE ==================
+# =====================================================
+# DANE RYNKOWE – PODZIAŁ ŹRÓDEŁ
+# =====================================================
 def to_float_list(seq):
     result = []
     for x in seq:
@@ -95,19 +106,24 @@ def to_float_list(seq):
 def get_market_data(symbol: str):
     symbol = symbol.upper()
 
-    gpw_symbols = {
+    # ✅ TWARDY PODZIAŁ
+    GPW_SYMBOLS = {
         "PKO", "PEO", "PKN", "PZU", "ING", "KGH",
-        "ALE", "LPP", "DNP", "XTB", "KTY", "11B", "CDR"
+        "ALE", "LPP", "DNP", "XTB", "KTY",
+        "11B", "CDR", "PHT", "SN2", "SNK", "SNT"
     }
 
-    # --- GPW / Stooq ---
-    if symbol in gpw_symbols:
+    # ---------------- GPW → STOOQ ----------------
+    if symbol in GPW_SYMBOLS:
         url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
         try:
-            r_resp = requests.get(url, timeout=10)
-            lines = r_resp.text.splitlines()[1:]
+            r = requests.get(url, timeout=10)
+            if r.status_code != 200:
+                return [], []
 
+            lines = r.text.splitlines()[1:]
             prices, volumes = [], []
+
             for row in lines[-300:]:
                 parts = row.split(",")
                 if len(parts) >= 6:
@@ -118,7 +134,7 @@ def get_market_data(symbol: str):
         except Exception:
             return [], []
 
-    # --- Yahoo Finance ---
+    # ---------------- USA / EU → YAHOO ----------------
     try:
         data = yf.download(symbol, period="1y", interval="1d", progress=False)
         if data.empty:
@@ -131,7 +147,9 @@ def get_market_data(symbol: str):
         return [], []
 
 
-# ================== TELEGRAM ==================
+# =====================================================
+# TELEGRAM
+# =====================================================
 def handle_telegram_commands():
     global last_update_id
 
@@ -149,7 +167,7 @@ def handle_telegram_commands():
                     "🤖 Bot aktywny\n\n"
                     f"🕒 Ostatni skan: {last_check_time}\n"
                     f"⏳ Cooldown: {COOLDOWN // 3600} h\n"
-                    "📈 Interwał danych: D1\n"
+                    "📈 Interwał: D1\n"
                     "🧠 Storage: Redis"
                 )
                 send_telegram_message(msg)
@@ -158,7 +176,9 @@ def handle_telegram_commands():
         pass
 
 
-# ================== ANALIZA RYNKU ==================
+# =====================================================
+# ANALIZA RYNKU
+# =====================================================
 def analyze_market():
     global last_check_time
 
@@ -169,7 +189,7 @@ def analyze_market():
 
     for symbol in INSTRUMENTS:
         try:
-            # --- Cooldown ---
+            # ---------- cooldown ----------
             last_time = get_last_signal_time(symbol)
             if last_time and (now - last_time).total_seconds() < COOLDOWN:
                 continue
@@ -218,7 +238,9 @@ def analyze_market():
             print(f"❌ Błąd {symbol}: {e}")
 
 
-# ================== START ==================
+# =====================================================
+# START
+# =====================================================
 if __name__ == "__main__":
     print("🚀 Bot uruchomiony (Redis)")
     while True:
