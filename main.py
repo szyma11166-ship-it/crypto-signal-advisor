@@ -17,6 +17,7 @@ from config import (
 from signals import detect_market_signals
 from notifier import send_telegram_message, get_updates
 
+
 def send_telegram_photo(photo_path):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -33,6 +34,7 @@ def send_telegram_photo(photo_path):
             requests.post(url, data=data, files=files, timeout=10)
     except Exception as e:
         print(f"❌ Nie udało się wysłać zdjęcia: {e}")
+
 
 # =====================================================
 # REDIS – JEDYNE ŹRÓDŁO STANU
@@ -82,44 +84,130 @@ def save_signal(symbol, signal, verdict, dt, max_items=200):
 # PEŁNE NAZWY + RYNKI
 # =====================================================
 COMPANY_NAMES = {
-    "NVDA": "NVIDIA Corporation",
-    "MSFT": "Microsoft Corporation",
-    "AAPL": "Apple Inc.",
-    "AMZN": "Amazon.com Inc.",
-    "META": "Meta Platforms Inc.",
-    "TSLA": "Tesla Inc.",
-    "MCD": "McDonald's Corporation",
-    "COST": "Costco Wholesale Corporation",
-    "JPM": "JPMorgan Chase & Co.",
-    "GS": "Goldman Sachs Group, Inc.",
-    "LMT": "Lockheed Martin Corporation",
-    "RTX": "RTX Corporation",
-    "ASML": "ASML Holding N.V.",
-    "SAP": "SAP SE",
-    "PKO": "PKO Bank Polski",
-    "PEO": "Bank Pekao S.A.",
-    "PZU": "PZU S.A.",
-    "ING": "ING Bank Śląski S.A.",
-    "KGH": "KGHM Polska Miedź S.A.",
-    "XTB": "XTB S.A.",
-    "11B": "11 bit studios S.A.",
-    "CDR": "CD Projekt S.A.",
+    # GPW – Polska
+    "PKO":     "PKO Bank Polski",
+    "PEO":     "Bank Pekao S.A.",
+    "PZU":     "PZU S.A.",
+    "ING":     "ING Bank Śląski S.A.",
+    "MBK":     "mBank S.A.",
+    "ALR":     "Alior Bank S.A.",
+    "PKN":     "PKN Orlen S.A.",
+    "KGH":     "KGHM Polska Miedź S.A.",
+    "PGE":     "PGE S.A.",
+    "ENA":     "Enea S.A.",
+    "TPE":     "Tauron Polska Energia S.A.",
+    "CDR":     "CD Projekt S.A.",
+    "11B":     "11 bit studios S.A.",
+    "PLW":     "Playway S.A.",
+    "TEN":     "Ten Square Games S.A.",
+    "LPP":     "LPP S.A.",
+    "DNP":     "Dino Polska S.A.",
+    "CCC":     "CCC S.A.",
+    "ALE":     "Allegro.eu S.A.",
+    "VRG":     "Vistula Group S.A.",
+    "XTB":     "XTB S.A.",
+    "KTY":     "Grupa Kęty S.A.",
+    "ACP":     "Asseco Poland S.A.",
+    "BDX":     "Budimex S.A.",
+    "OPL":     "Orange Polska S.A.",
+    "GPW":     "Giełda Papierów Wartościowych S.A.",
+    "SNT":     "Synektik S.A.",
+    "PHT":     "Pharmena S.A.",
+    "SN2":     "SN2 S.A.",
+    # USA – Big Tech / AI
+    "NVDA":    "NVIDIA Corporation",
+    "MSFT":    "Microsoft Corporation",
+    "AAPL":    "Apple Inc.",
+    "AMZN":    "Amazon.com Inc.",
+    "META":    "Meta Platforms Inc.",
+    "GOOGL":   "Alphabet Inc.",
+    "AMD":     "Advanced Micro Devices Inc.",
+    "INTC":    "Intel Corporation",
+    "IBM":     "IBM Corporation",
+    "ORCL":    "Oracle Corporation",
+    "TSM":     "Taiwan Semiconductor Manufacturing",
+    "SMCI":    "Super Micro Computer Inc.",
+    "TSLA":    "Tesla Inc.",
+    "PLTR":    "Palantir Technologies Inc.",
+    "NVO":     "Novo Nordisk A/S",
+    "SOFI":    "SoFi Technologies Inc.",
+    "HOOD":    "Robinhood Markets Inc.",
+    # USA – Przemysł / obronność
+    "LMT":     "Lockheed Martin Corporation",
+    "RTX":     "RTX Corporation",
+    "BA":      "Boeing Company",
+    "CAT":     "Caterpillar Inc.",
+    "DE":      "Deere & Company",
+    # USA – Konsumpcja
+    "MCD":     "McDonald's Corporation",
+    "COST":    "Costco Wholesale Corporation",
+    "WMT":     "Walmart Inc.",
+    "PG":      "Procter & Gamble Co.",
+    # USA – Finanse
+    "JPM":     "JPMorgan Chase & Co.",
+    "GS":      "Goldman Sachs Group, Inc.",
+    "BAC":     "Bank of America Corp.",
+    "MS":      "Morgan Stanley",
+    # USA – Energia
+    "XOM":     "ExxonMobil Corporation",
+    "CVX":     "Chevron Corporation",
+    "VLO":     "Valero Energy Corporation",
+    # Europa
+    "ASML":    "ASML Holding N.V.",
+    "SAP":     "SAP SE",
+    "NESN.SW": "Nestlé S.A.",
+    "RHM.DE":  "Rheinmetall AG",
+    "AIR.PA":  "Airbus SE",
+    # Surowce / ETF
+    "4GLD.DE": "Xetra Gold (DE)",
+    "GLD":     "SPDR Gold Shares ETF",
+    "SLV":     "iShares Silver Trust ETF",
+    "USO":     "United States Oil Fund ETF",
+    "CPER":    "United States Copper Index ETF",
+    "URA":     "Global X Uranium ETF",
 }
 
+# =====================================================
+# SYMBOLE GPW (routing → Stooq)
+# =====================================================
 GPW_SYMBOLS = {
-    "PKO", "PEO", "PZU", "ING", "KGH",
-    "XTB", "11B", "CDR", "ALE", "LPP",
-    "DNP", "KTY", "ALR", "ENA", "PKN"
+    "PKO", "PEO", "PZU", "ING", "MBK", "ALR",
+    "PKN", "KGH", "PGE", "ENA", "TPE",
+    "CDR", "11B", "PLW", "TEN",
+    "LPP", "DNP", "CCC", "ALE", "VRG",
+    "XTB", "KTY", "ACP",
+    "BDX", "OPL", "GPW",
+    "SNT", "PHT", "SN2",
 }
 
-# Jawna lista Yahoo – **tylko to**
+# =====================================================
+# SYMBOLE YAHOO (USA + Europa z sufixami + ETF)
+# =====================================================
 YAHOO_SYMBOLS = {
-    "AAPL", "AMZN", "META", "MSFT", "NVDA",
-    "TSLA", "MCD", "COST", "JPM", "GS",
-    "LMT", "RTX", "XOM", "CVX", "VLO",
-    "AMD", "INTC", "IBM", "ORCL",
-    "ASML", "SAP", "TSM", "GLD",
-    "SLV", "4GLD.DE"
+    # USA – Big Tech / AI
+    "AAPL", "AMZN", "META", "MSFT", "NVDA", "GOOGL",
+    "AMD", "INTC", "IBM", "ORCL", "TSM", "SMCI",
+    "TSLA", "PLTR", "NVO", "SOFI", "HOOD",
+    # USA – Przemysł / obronność
+    "LMT", "RTX", "BA", "CAT", "DE",
+    # USA – Konsumpcja
+    "MCD", "COST", "WMT", "PG",
+    # USA – Finanse
+    "JPM", "GS", "BAC", "MS",
+    # USA – Energia
+    "XOM", "CVX", "VLO",
+    # Europa (Yahoo obsługuje .SW, .DE, .PA natywnie)
+    "ASML", "SAP",
+    "NESN.SW",   # Nestlé – Swiss Exchange
+    "RHM.DE",    # Rheinmetall – XETRA
+    "AIR.PA",    # Airbus – Euronext Paris
+    # Surowce / ETF
+    "4GLD.DE",   # Xetra Gold
+    "GLD",       # złoto ETF
+    "SLV",       # srebro ETF
+    "USO",       # ropa ETF
+    "CPER",      # miedź ETF
+    "URA",       # uran ETF
 }
 
 ALL_SYMBOLS = sorted(set(INSTRUMENTS) | YAHOO_SYMBOLS)
@@ -129,8 +217,8 @@ ALL_SYMBOLS = sorted(set(INSTRUMENTS) | YAHOO_SYMBOLS)
 # USTAWIENIA CZASOWE
 # =====================================================
 SILENCE_START, SILENCE_END = 0, 6
-COMMAND_CHECK_INTERVAL = 3        # sekundy
-MARKET_ANALYSIS_INTERVAL = 300    # 5 minut
+COMMAND_CHECK_INTERVAL = 3         # sekundy
+MARKET_ANALYSIS_INTERVAL = 300     # 5 minut
 
 last_update_id = None
 last_check_time = "Brak"
@@ -158,7 +246,7 @@ def to_float_list(seq):
 def get_market_data(symbol):
     symbol = symbol.upper()
 
-    # ===== USA / EU → YAHOO =====
+    # ===== USA / Europa / ETF → YAHOO =====
     if symbol in YAHOO_SYMBOLS:
         try:
             data = yf.download(symbol, period="1y", interval="1d", progress=False)
@@ -193,6 +281,18 @@ def get_market_data(symbol):
 
 
 # =====================================================
+# COOLDOWN – pomocnicza walidacja
+# =====================================================
+def is_on_cooldown(symbol, now):
+    """Zwraca True jeśli od ostatniego alertu minęło mniej niż COOLDOWN sekund."""
+    last = get_last_signal_time(symbol)
+    if last is None:
+        return False
+    elapsed = (now - last.replace(tzinfo=timezone.utc)).total_seconds()
+    return elapsed < COOLDOWN
+
+
+# =====================================================
 # KOMENDY TELEGRAM
 # =====================================================
 def handle_telegram_commands():
@@ -210,7 +310,8 @@ def handle_telegram_commands():
             send_telegram_message(
                 f"🤖 Status bota\n\n"
                 f"Ostatni skan: {last_check_time}\n"
-                f"Spółek w radarze: {len(ALL_SYMBOLS)}"
+                f"Spółek w radarze: {len(ALL_SYMBOLS)}\n"
+                f"Tryb ciszy: {SILENCE_START}:00 – {SILENCE_END}:00 UTC"
             )
 
         elif text == "/stats":
@@ -257,8 +358,9 @@ def handle_telegram_commands():
                 "/papaj"
             )
 
+
 # =====================================================
-# ANALIZA RYNKU (ZMIANA STANU, NIE CZAS)
+# ANALIZA RYNKU (ZMIANA STANU + COOLDOWN)
 # =====================================================
 def analyze_market():
     global last_check_time
@@ -291,14 +393,19 @@ def analyze_market():
             current_state = f"{s['category']}|{verdict}"
             last_state = get_last_state(symbol)
 
+            # Brak zmiany stanu → cisza
             if current_state == last_state:
-                continue  # brak zmiany → cisza
+                continue
 
-            # zapis nowego stanu
+            # Cooldown – nie spamuj nawet przy zmianie stanu
+            if is_on_cooldown(symbol, now):
+                continue
+
+            # Zapis nowego stanu
             set_last_state(symbol, current_state)
 
             company = COMPANY_NAMES.get(symbol, symbol)
-            market = "Polska – GPW" if symbol in GPW_SYMBOLS else "USA / Europa"
+            market = "Polska – GPW" if symbol in GPW_SYMBOLS else "USA / Europa / ETF"
 
             msg = (
                 f"📡 {company} ({symbol})\n"
@@ -320,7 +427,7 @@ def analyze_market():
 # START – RESPONSYWNA PĘTLA
 # =====================================================
 if __name__ == "__main__":
-    print("🚀 Bot uruchomiony (stabilny, responsywny)")
+    print(f"🚀 Bot uruchomiony (stabilny, responsywny) | Spółek: {len(ALL_SYMBOLS)}")
 
     while True:
         now_ts = time.time()
