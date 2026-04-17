@@ -49,4 +49,3 @@ VOLATILITY_THRESHOLD = 2.0
 RSI_PERIOD = 14
 VOLUME_MULTIPLIER = 2.0
 COOLDOWN = 10800  # 3 godziny spokoju po wysłaniu alertu o danej spółce
-``
