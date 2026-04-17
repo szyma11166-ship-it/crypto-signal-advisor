@@ -3,49 +3,59 @@ from datetime import datetime, timezone
 import requests
 import yfinance as yf
 import numpy as np
-import pandas as pd
 
 from config import INSTRUMENTS, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER, COOLDOWN
 from signals import detect_market_signals
 from notifier import send_telegram_message, get_updates
 from state import get_last_signal_time, set_last_signal_time
 
-# ================== KONFIGURACJA ==================
 SILENCE_START, SILENCE_END = 0, 6
 last_update_id = None
 last_check_time = "Brak"
 
+
 def is_night_silence(now: datetime) -> bool:
     return SILENCE_START <= now.hour < SILENCE_END
 
-def portfolio_context(symbol: str):
+
+def portfolio_context(symbol: str) -> float:
     import json, os
-    path = "portfolio.json"
-    if not os.path.exists(path): return 0.0
+    if not os.path.exists("portfolio.json"):
+        return 0.0
     try:
-        with open(path, "r") as f:
-            data = json.load(f).get("groups", {})
-            weight = 0.0
-            for name, grp in data.items():
-                if symbol in grp.get("instruments", []):
-                    weight += float(grp.get("weight", 0))
-            return weight
-    except: return 0.0
+        with open("portfolio.json", "r") as f:
+            groups = json.load(f).get("groups", {})
+            return sum(
+                float(g.get("weight", 0))
+                for g in groups.values()
+                if symbol in g.get("instruments", [])
+            )
+    except Exception:
+        return 0.0
+
 
 def to_float_list(seq):
-    return [float(x[0]) if isinstance(x, (list, np.ndarray)) else float(x) for x in seq]
+    result = []
+    for x in seq:
+        try:
+            if isinstance(x, (list, tuple, np.ndarray)):
+                result.append(float(x[0]))
+            else:
+                result.append(float(x))
+        except Exception:
+            pass
+    return result
+
 
 def get_market_data(symbol: str):
     symbol = symbol.upper()
-    gpw_list = ["PKO", "PEO", "PKN", "PZU", "ING", "KGH", "ALE", "LPP", "DNP", "XTB", "KTY", "11B", "SNT", "PHT", "SN2", "CDR", "SNK"]
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    gpw = ["PKO", "PEO", "PZU", "ING", "KGH", "ALE", "LPP", "CDR"]
 
-    if symbol in gpw_list:
+    if symbol in gpw:
         url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
         try:
-            r = requests.get(url, headers=headers, timeout=15)
-            if r.status_code != 200: return [], []
-            lines = r.text.strip().splitlines()[1:]
+            r = requests.get(url, timeout=10)
+            lines = r.text.splitlines()[1:]
             prices, volumes = [], []
             for row in lines[-300:]:
                 parts = row.split(",")
@@ -53,27 +63,37 @@ def get_market_data(symbol: str):
                     prices.append(float(parts[4]))
                     volumes.append(float(parts[5]))
             return prices, volumes
-        except: return [], []
+        except Exception:
+            return [], []
 
     try:
         data = yf.download(symbol, period="1y", interval="1d", progress=False)
-        if data.empty: return [], []
-        prices = to_float_list(data["Close"].dropna().values)
-        volumes = to_float_list(data["Volume"].dropna().values)
-        return prices, volumes
-    except: return [], []
+        if data.empty:
+            return [], []
+        return (
+            to_float_list(data["Close"].dropna().values),
+            to_float_list(data["Volume"].dropna().values),
+        )
+    except Exception:
+        return [], []
+
 
 def handle_telegram_commands():
     global last_update_id
     try:
         updates = get_updates(last_update_id)
-        if not updates: return
-        for update in updates:
+        for update in updates or []:
             last_update_id = update["update_id"] + 1
-            text = update.get("message", {}).get("text", "").strip()
+            text = update.get("message", {}).get("text", "")
             if text == "/status":
-                send_telegram_message(f"<b>🤖 Marek Towarek PRO: Online</b>\n🕒 Skan: {last_check_time}\n📈 Interwał: 1D\n⏳ Cooldown: {COOLDOWN/3600}h")
-    except: pass
+                send_telegram_message(
+                    f"🤖 Bot online\n"
+                    f"🕒 Ostatni skan: {last_check_time}\n"
+                    f"⏳ Cooldown: {COOLDOWN // 3600}h"
+                )
+    except Exception:
+        pass
+
 
 def analyze_market():
     global last_check_time
@@ -84,40 +104,44 @@ def analyze_market():
 
     for symbol in INSTRUMENTS:
         try:
-            # 1. Sprawdź trwały cooldown
             last_time = get_last_signal_time(symbol)
-            if last_time:
-                diff = (now - last_time).total_seconds()
-                if diff < COOLDOWN:
-                    continue
+            if last_time and (now - last_time).total_seconds() < COOLDOWN:
+                continue
 
-            # 2. Pobierz dane i analizuj
             prices, volumes = get_market_data(symbol)
-            if len(prices) < 30: continue
+            if len(prices) < 50:
+                continue
 
-            signals = detect_market_signals(prices, volumes, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
+            signals = detect_market_signals(
+                prices, volumes, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER
+            )
 
-            if signals:
-                if is_night_silence(now): continue
-                
-                weight = portfolio_context(symbol)
-                relevance = "Wysokie" if weight >= 0.3 else "Normalne" if weight > 0 else "Obserwowane"
-                
-                msg = f"📡 <b>Sygnał: {symbol}</b>\nStatus: {relevance} (~{int(weight*100)}% portfela)\n\n"
-                for s in signals:
-                    msg += f"• <b>{s['type']}</b>\n{s['message']}\n\n"
-                
-                send_telegram_message(msg)
-                # 3. Zapisz czas wysłania do PLIKU
-                set_last_signal_time(symbol, now)
-                time.sleep(1)
+            if not signals or is_night_silence(now):
+                continue
 
+            weight = portfolio_context(symbol)
+            relevance = (
+                "Wysokie" if weight >= 0.3
+                else "Normalne" if weight > 0
+                else "Obserwowane"
+            )
+
+            msg = f"📡 <b>{symbol}</b> ({relevance})\n\n"
+            for s in signals:
+                msg += f"<b>{s['type']}</b>\n{s['message']}\n\n"
+
+            send_telegram_message(msg)
+            set_last_signal_time(symbol, now)
+
+            time.sleep(1)
         except Exception as e:
             print(f"Błąd {symbol}: {e}")
 
+
 if __name__ == "__main__":
-    print("🚀 Maszyna Marek Towarek PRO URUCHOMIONA")
+    print("🚀 Bot URUCHOMIONY")
     while True:
         handle_telegram_commands()
         analyze_market()
         time.sleep(300)
+``
