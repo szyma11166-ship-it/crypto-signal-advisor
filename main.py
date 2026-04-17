@@ -103,6 +103,8 @@ def analyze_market():
     print(f"[{last_check_time}] Skanowanie rynku...")
 
     for symbol in INSTRUMENTS:
+        # ⛔ NIE zagnieżdżamy try w try
+        # ⛔ Jeden try = jeden except
         try:
             last_time = get_last_signal_time(symbol)
             if last_time and (now - last_time).total_seconds() < COOLDOWN:
@@ -113,10 +115,15 @@ def analyze_market():
                 continue
 
             signals = detect_market_signals(
-                prices, volumes, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER
+                prices, volumes,
+                VOLATILITY_THRESHOLD,
+                VOLUME_MULTIPLIER
             )
 
-            if not signals or is_night_silence(now):
+            if not signals:
+                continue
+
+            if is_night_silence(now):
                 continue
 
             weight = portfolio_context(symbol)
@@ -126,27 +133,19 @@ def analyze_market():
                 else "Obserwowane"
             )
 
-            msg = f"📡 <b>{symbol}</b> ({relevance})\n\n"
-     
-for s in signals:
-    msg += (
-        f"<b>{s['title']}</b>\n"
-        f"Typ: {s['category']}\n"
-        f"Ryzyko: {s['risk']}\n"
-        f"{s['message']}\n\n"
-    )
+            msg = f"📡 <b>{symbol}</b>\nStatus: {relevance}\n\n"
+            for s in signals:
+                msg += (
+                    f"<b>{s['title']}</b>\n"
+                    f"Typ: {s['category']}\n"
+                    f"Ryzyko: {s['risk']}\n"
+                    f"{s['message']}\n\n"
+                )
 
             send_telegram_message(msg)
             set_last_signal_time(symbol, now)
-
             time.sleep(1)
+
         except Exception as e:
-            print(f"Błąd {symbol}: {e}")
-
-
-if __name__ == "__main__":
-    print("🚀 Bot URUCHOMIONY")
-    while True:
-        handle_telegram_commands()
-        analyze_market()
+            print(f"❌ Błąd dla {symbol}: {e}"))
      time.sleep(300)
