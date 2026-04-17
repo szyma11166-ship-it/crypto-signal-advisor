@@ -209,4 +209,3 @@ if __name__ == "__main__":
             last_market_check = now_ts
 
         time.sleep(1)
-``
