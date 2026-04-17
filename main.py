@@ -190,55 +190,61 @@ def handle_telegram_commands():
         last_update_id = upd["update_id"] + 1
         text = upd.get("message", {}).get("text", "").strip()
 
+        # ---------- /status ----------
         if text == "/status":
             send_telegram_message(
-                f"🤖 Status bota\n"
+                f"🤖 Status bota\n\n"
                 f"Ostatni skan: {last_check_time}\n"
-                f"Spółek w radarze: {len(ALL_SYMBOLS)}"
+                f"Spółek w radarze: {len(ALL_SYMBOLS)}\n"
+                f"Interwał analizy: 5 min\n"
+                f"Storage: Redis"
             )
 
+        # ---------- /stats ----------
         elif text == "/stats":
             send_telegram_message(
-                f"📊 Statystyki\n"
+                f"📊 Statystyki\n\n"
                 f"Łącznie: {r.get('stats:total') or 0}\n"
                 f"Trendowe: {r.get('stats:TREND_CONFIRMATION') or 0}\n"
                 f"Kontrariańskie: {r.get('stats:CONTRARIAN') or 0}\n"
                 f"Zmiana zachowania: {r.get('stats:BEHAVIOR_CHANGE') or 0}"
             )
 
-elif text == "/last":
-    messages = []
-    # bierzemy ostatnie sygnały ze wszystkich spółek
-    for symbol in ALL_SYMBOLS:
-        items = r.lrange(f"signals:{symbol}", 0, 0)
-        if items:
-            try:
-                messages.append(ast.literal_eval(items[0]))
-            except Exception:
-                pass
+        # ---------- /last ----------
+        elif text == "/last":
+            messages = []
 
-    if not messages:
-        send_telegram_message("Brak zapisanych sygnałów.")
-    else:
-        # sortujemy po czasie malejąco
-        messages.sort(key=lambda x: x["time"], reverse=True)
+            for symbol in ALL_SYMBOLS:
+                items = r.lrange(f"signals:{symbol}", 0, 0)
+                if items:
+                    try:
+                        messages.append(ast.literal_eval(items[0]))
+                    except Exception:
+                        pass
 
-        msg = "📡 <b>Ostatnie sygnały</b>\n\n"
-        for s in messages[:5]:  # max 5 ostatnich
-            msg += (
-                f"<b>{s['symbol']}</b>\n"
-                f"{s['title']}\n"
-                f"Werdykt: <b>{s['verdict']}</b>\n"
-                f"{s['message']}\n\n"
-            )
+            if not messages:
+                send_telegram_message("Brak zapisanych sygnałów.")
+            else:
+                messages.sort(key=lambda x: x["time"], reverse=True)
 
-        send_telegram_message(msg)
-        
+                msg = "📡 Ostatnie sygnały\n\n"
+                for s in messages[:5]:
+                    msg += (
+                        f"{s['symbol']}\n"
+                        f"{s['title']}\n"
+                        f"Werdykt: {s['verdict']}\n\n"
+                    )
+
+                send_telegram_message(msg)
+
+        # ---------- /help ----------
         elif text == "/help":
             send_telegram_message(
+                "Zgubiłeś się? :(\n"
                 "/status – status bota\n"
                 "/stats – statystyki\n"
-                "/last – ostatnie sygnały"
+                "/last – ostatnie sygnały\n"
+                "/help – pomoc"
             )
 
 
