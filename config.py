@@ -16,9 +16,17 @@ INSTRUMENTS = [
     # Gry
     "CDR", "11B", "PLW", "TEN",
     # Handel / konsumpcja
-    "LPP", "DNP", "CCC", "ALE",
+    "LPP", "DNP", "CCC", "ALE", "VRG",
     # Technologia / pozostałe
     "XTB", "KTY", "ACP",
+    # Budownictwo / infrastruktura
+    "BDX",
+    # Nowe dodatki GPW
+    "OPL",   # Orange Polska – dywidendowa, stabilna
+    "GPW",   # GPW S.A. – meta-instrument giełdy
+    "SNT",   # Synektik
+    "PHT",   # Pharmena / sektor medyczny
+    "SN2",   # S.A.
 
     # ================= USA – WALL STREET =================
     # Big Tech / AI
@@ -26,6 +34,7 @@ INSTRUMENTS = [
     "AMD", "INTC", "IBM", "ORCL",
     # Półprzewodniki / hardware
     "TSM",
+    "SMCI",  # Super Micro Computer – AI infrastructure
     # Przemysł / obronność
     "LMT", "RTX", "BA", "CAT", "DE",
     # Konsumpcja
@@ -34,14 +43,30 @@ INSTRUMENTS = [
     "JPM", "GS", "BAC", "MS",
     # Energia
     "XOM", "CVX", "VLO",
+    # EV / nowe technologie
+    "TSLA",
+    # AI / Dane / obronność
+    "PLTR",  # Palantir – AI/obronność, wysoka popularność
+    # Biofarma / healthcare
+    "NVO",   # Novo Nordisk – GLP-1, ogromny trend
+    # Fintech
+    "SOFI",  # SoFi Technologies
+    "HOOD",  # Robinhood
 
     # ================= EUROPA =================
-    "ASML", "SAP", "NESN.SW", "RHM.DE", "AIR.PA",
+    "ASML",       # ASML Holding – fotolitografia, kluczowy dla chipów
+    "SAP",        # SAP SE – enterprise software
+    "NESN.SW",    # Nestlé – stabilna konsumpcja
+    "RHM.DE",     # Rheinmetall – obronność Europa
+    "AIR.PA",     # Airbus – lotnictwo
 
     # ================= SUROWCE / PROXY =================
-    "4GLD.DE",   # złoto (Xetra Gold)
-    "GLD",       # ETF złoto
-    "SLV"        # ETF srebro
+    "4GLD.DE",    # Xetra Gold – złoto fizyczne (Niemcy)
+    "GLD",        # ETF złoto (USA)
+    "SLV",        # ETF srebro (USA)
+    "USO",        # ETF ropa naftowa
+    "CPER",       # ETF miedź – korelacja z KGH
+    "URA",        # ETF uran – trend energetyczny/obronny
 ]
 
 # Parametry analizy
