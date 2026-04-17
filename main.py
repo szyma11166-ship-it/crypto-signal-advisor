@@ -17,6 +17,8 @@ from config import (
 from signals import detect_market_signals
 from notifier import send_telegram_message, get_updates
 
+os.environ['TZ'] = 'Europe/Warsaw'
+if hasattr(time, 'tzset'): time.tzset()
 
 def send_telegram_photo(photo_path):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
