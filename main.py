@@ -18,14 +18,21 @@ from signals import detect_market_signals
 from notifier import send_telegram_message, get_updates
 
 
-# ================= REDIS =================
+# =====================================================
+# REDIS – JEDYNE ŹRÓDŁO STANU
+# =====================================================
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 
 def get_last_signal_time(symbol):
     ts = r.get(f"cooldown:{symbol}")
-    return datetime.fromisoformat(ts) if ts else None
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
 
 
 def set_last_signal_time(symbol, dt):
@@ -42,15 +49,21 @@ def save_signal(symbol, signal, verdict, dt, max_items=200):
         "message": signal["message"],
         "verdict": verdict,
     }
+
     r.lpush(f"signals:{symbol}", str(entry))
     r.ltrim(f"signals:{symbol}", 0, max_items - 1)
+
+    # statystyki
     r.incr("stats:total")
     r.incr(f"stats:{signal['category']}")
     r.incr(f"stats:symbol:{symbol}")
 
 
-# ================= SPÓŁKI – PEŁNE NAZWY =================
+# =====================================================
+# PEŁNE NAZWY SPÓŁEK + RYNKI
+# =====================================================
 COMPANY_NAMES = {
+    # USA
     "NVDA": "NVIDIA Corporation",
     "MSFT": "Microsoft Corporation",
     "AAPL": "Apple Inc.",
@@ -58,40 +71,52 @@ COMPANY_NAMES = {
     "META": "Meta Platforms Inc.",
     "TSLA": "Tesla Inc.",
     "MCD": "McDonald's Corporation",
+    "COST": "Costco Wholesale Corporation",
+    "JPM": "JPMorgan Chase & Co.",
+    "GS": "Goldman Sachs Group, Inc.",
     "LMT": "Lockheed Martin Corporation",
     "RTX": "RTX Corporation",
-    "JPM": "JPMorgan Chase & Co.",
-    "GS": "Goldman Sachs Group",
+    # Europa
     "ASML": "ASML Holding N.V.",
     "SAP": "SAP SE",
-    "PZU": "PZU S.A.",
+    # Polska
     "PKO": "PKO Bank Polski",
     "PEO": "Bank Pekao S.A.",
+    "PZU": "PZU S.A.",
+    "ING": "ING Bank Śląski S.A.",
+    "KGH": "KGHM Polska Miedź S.A.",
+    "XTB": "XTB S.A.",
+    "11B": "11 bit studios S.A.",
+    "CDR": "CD Projekt S.A.",
 }
 
-MARKET_MAP = {
-    "GPW": "Polska – GPW",
-    "USA": "USA – Wall Street",
-    "EU": "Europa"
+GPW_SYMBOLS = {
+    "PKO", "PEO", "PZU", "ING", "KGH",
+    "XTB", "11B", "CDR"
 }
 
 
-# ================= WATCHLIST =================
+# =====================================================
+# WATCHLIST – POSZERZONA (BEZ OGRANICZEŃ)
+# =====================================================
 WATCHLIST_EXTRA = {
     # USA / Global
     "AAPL", "AMZN", "META", "MSFT", "NVDA",
     "TSLA", "MCD", "COST", "JPM", "GS",
     "LMT", "RTX",
-    # Europa
+    # EU
     "ASML", "SAP",
 }
 
-ALL_SYMBOLS = list(set(INSTRUMENTS) | WATCHLIST_EXTRA)
+ALL_SYMBOLS = sorted(set(INSTRUMENTS) | WATCHLIST_EXTRA)
 
 
-# ================= USTAWIENIA =================
-SILENCE_START, SILENCE_END = 0, 6
-CHECK_INTERVAL = 300
+# =====================================================
+# OGÓLNE
+# =====================================================
+SILENCE_START, SILENCE_END = 0, 6   # 00–06
+CHECK_INTERVAL = 300               # 5 minut
+
 last_update_id = None
 last_check_time = "Brak"
 
@@ -100,43 +125,59 @@ def is_night_silence(now):
     return SILENCE_START <= now.hour < SILENCE_END
 
 
-# ================= DANE RYNKOWE =================
+# =====================================================
+# DANE RYNKOWE – TWARDY PODZIAŁ ŹRÓDEŁ
+# =====================================================
 def to_float_list(seq):
-    return [float(x[0]) if isinstance(x, (list, tuple, np.ndarray)) else float(x) for x in seq if x is not None]
+    out = []
+    for x in seq:
+        try:
+            out.append(float(x[0]) if isinstance(x, (list, tuple, np.ndarray)) else float(x))
+        except Exception:
+            pass
+    return out
 
 
 def get_market_data(symbol):
     symbol = symbol.upper()
-    GPW = {"PKO", "PEO", "PZU", "ING", "KGH", "XTB", "11B", "CDR"}
 
-    if symbol in GPW:
+    # ---------- GPW → STOOQ ----------
+    if symbol in GPW_SYMBOLS:
         try:
             url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
-            r_resp = requests.get(url, timeout=10)
-            lines = r_resp.text.splitlines()[1:]
+            resp = requests.get(url, timeout=10)
+            if resp.status_code != 200:
+                return [], []
+
+            lines = resp.text.splitlines()[1:]
             prices, volumes = [], []
+
             for row in lines[-300:]:
                 p = row.split(",")
                 if len(p) >= 6:
-                    prices.append(float(p[4]))
-                    volumes.append(float(p[5]))
+                    prices.append(float(p[4]))   # close
+                    volumes.append(float(p[5]))  # volume
+
             return prices, volumes
-        except:
+        except Exception:
             return [], []
 
+    # ---------- USA / EU → YAHOO ----------
     try:
         data = yf.download(symbol, period="1y", interval="1d", progress=False)
         if data.empty:
             return [], []
-        return (
-            to_float_list(data["Close"].values),
-            to_float_list(data["Volume"].values),
-        )
-    except:
+
+        prices = to_float_list(data["Close"].values)
+        volumes = to_float_list(data["Volume"].values)
+        return prices, volumes
+    except Exception:
         return [], []
 
 
-# ================= KOMENDY =================
+# =====================================================
+# TELEGRAM – KOMENDY
+# =====================================================
 def handle_telegram_commands():
     global last_update_id
 
@@ -153,8 +194,42 @@ def handle_telegram_commands():
                 f"🤖 <b>Status bota</b>\n\n"
                 f"🕒 Ostatni skan: {last_check_time}\n"
                 f"📊 Spółek w radarze: {len(ALL_SYMBOLS)}\n"
-                f"⏳ Cooldown: {COOLDOWN//3600}h"
+                f"📈 Interwał danych: D1\n"
+                f"⏳ Cooldown: {COOLDOWN//3600}h\n"
+                f"🧠 Storage: Redis"
             )
+
+        elif text == "/help":
+            send_telegram_message(
+                "📖 <b>Dostępne komendy</b>\n\n"
+                "/status – status bota\n"
+                "/last – ostatnie sygnały\n"
+                "/stats – statystyki\n"
+                "/help – pomoc"
+            )
+
+        elif text == "/last":
+            msgs = []
+            for symbol in ALL_SYMBOLS[:10]:
+                items = r.lrange(f"signals:{symbol}", 0, 0)
+                if items:
+                    try:
+                        msgs.append(ast.literal_eval(items[0]))
+                    except Exception:
+                        pass
+
+            if not msgs:
+                send_telegram_message("Brak zapisanych sygnałów.")
+            else:
+                msg = "📡 <b>Ostatnie sygnały</b>\n\n"
+                for s in msgs:
+                    msg += (
+                        f"<b>{s['symbol']}</b>\n"
+                        f"{s['title']}\n"
+                        f"Werdykt: {s['verdict']}\n"
+                        f"{s['message']}\n\n"
+                    )
+                send_telegram_message(msg)
 
         elif text == "/stats":
             send_telegram_message(
@@ -166,7 +241,9 @@ def handle_telegram_commands():
             )
 
 
-# ================= ANALIZA =================
+# =====================================================
+# ANALIZA RYNKU
+# =====================================================
 def analyze_market():
     global last_check_time
     now = datetime.now(timezone.utc)
@@ -178,7 +255,7 @@ def analyze_market():
             continue
 
         prices, vols = get_market_data(symbol)
-        if len(prices) < 50:
+        if len(prices) < 50 or len(vols) < 20:
             continue
 
         signals = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
@@ -194,7 +271,7 @@ def analyze_market():
                 verdict = "⏸ TRZYMAJ / OBSERWUJ"
 
             company = COMPANY_NAMES.get(symbol, symbol)
-            market = "Polska – GPW" if symbol in {"PKO","PEO","PZU","ING","KGH","XTB","11B","CDR"} else "USA / EU"
+            market = "Polska – GPW" if symbol in GPW_SYMBOLS else "USA / Europa"
 
             msg = (
                 f"📡 <b>{company} ({symbol})</b>\n"
@@ -212,9 +289,11 @@ def analyze_market():
             time.sleep(1)
 
 
-# ================= START =================
+# =====================================================
+# START
+# =====================================================
 if __name__ == "__main__":
-    print("🚀 Bot uruchomiony")
+    print("🚀 Bot uruchomiony (stabilna wersja)")
     while True:
         handle_telegram_commands()
         analyze_market()
