@@ -1,75 +1,107 @@
 import numpy as np
 import pandas as pd
 
+
+# ---------------- RSI ----------------
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
-        return 50
+        return None
+
     deltas = np.diff(prices)
     seed = deltas[:period]
     up = seed[seed >= 0].sum() / period
     down = -seed[seed < 0].sum() / period
     rs = up / down if down != 0 else 0
+
     rsi = np.zeros_like(prices)
     rsi[:period] = 100. - 100. / (1. + rs)
 
     for i in range(period, len(prices)):
         delta = deltas[i - 1]
-        if delta > 0:
-            up_chg = delta
-            down_chg = 0
-        else:
-            up_chg = 0
-            down_chg = -delta
-        up = (up * (period - 1) + up_chg) / period
-        down = (down * (period - 1) + down_chg) / period
+        up_val = max(delta, 0)
+        down_val = max(-delta, 0)
+        up = (up * (period - 1) + up_val) / period
+        down = (down * (period - 1) + down_val) / period
         rs = up / down if down != 0 else 0
         rsi[i] = 100. - 100. / (1. + rs)
+
     return rsi[-1]
 
+
+# ---------------- EMA ----------------
 def calculate_ema(prices, period=200):
     if len(prices) < period:
         return None
-    # pd.Series potrzebuje importu pandas as pd na górze pliku
     return pd.Series(prices).ewm(span=period, adjust=False).mean().iloc[-1]
 
-def detect_market_signals(prices, volumes, volatility_threshold, vol_multiplier):
+
+# ---------------- GŁÓWNA LOGIKA ----------------
+def detect_market_signals(
+    prices,
+    volumes,
+    volatility_threshold,
+    volume_multiplier,
+    rsi_period=14
+):
     signals = []
-    if len(prices) < 20: return signals
-    
+
+    if len(prices) < 50 or len(volumes) < 20:
+        return signals
+
     current_price = prices[-1]
-    rsi = calculate_rsi(prices)
+    rsi = calculate_rsi(prices, rsi_period)
     ema200 = calculate_ema(prices, 200)
-    
-    # LOGIKA SYGNAŁÓW
-    if rsi < 30:
+
+    # === 1️⃣ SYGNAŁY MOMENTUM / TREND ===
+    if rsi is not None and rsi < 30:
         if ema200 and current_price > ema200:
+            # ✅ sygnał w trendzie
             signals.append({
-                "type": "🔥 MOCNE KUPUJ (Pullback)",
-                "value": f"RSI: {rsi:.1f}",
-                "message": "Trend wzrostowy (nad EMA200) + wyprzedanie. Okazja!"
+                "category": "TREND_CONFIRMATION",
+                "title": "Korekta w trendzie wzrostowym",
+                "message": (
+                    f"RSI={rsi:.1f}, cena powyżej EMA200.\n"
+                    "Spółka znajduje się w trendzie wzrostowym "
+                    "i przechodzi korektę."
+                ),
+                "risk": "NISKIE–ŚREDNIE"
             })
         else:
+            # ⚠️ sygnał kontrariański
             signals.append({
-                "type": "⚠️ WYPRZEDANIE (Ryzyko)",
-                "value": f"RSI: {rsi:.1f}",
-                "message": "Tanio, ale trend jest spadkowy. Możliwe dalsze spadki."
+                "category": "CONTRARIAN",
+                "title": "Silne wyprzedanie w trendzie spadkowym",
+                "message": (
+                    f"RSI={rsi:.1f}, cena poniżej EMA200.\n"
+                    "To sygnał kontrariański — podwyższone ryzyko."
+                ),
+                "risk": "WYSOKIE"
             })
-            
-    if rsi > 70:
+
+    if rsi is not None and rsi > 70:
         signals.append({
-            "type": "🔔 WYSOKIE RSI",
-            "value": f"RSI: {rsi:.1f}",
-            "message": "Spółka przegrzana. Możliwa korekta."
+            "category": "BEHAVIOR_CHANGE",
+            "title": "Rynek przegrzany",
+            "message": (
+                f"RSI={rsi:.1f}.\n"
+                "Wysokie momentum wzrostowe – możliwa korekta lub konsolidacja."
+            ),
+            "risk": "ŚREDNIE"
         })
 
-    # Wolumen
-    avg_vol = np.mean(volumes[-20:-1])
-    current_vol = volumes[-1]
-    if current_vol > avg_vol * vol_multiplier:
+    # === 2️⃣ SYGNAŁ ZACHOWANIA RYNKU (WOLUMEN) ===
+    avg_volume = np.mean(volumes[-20:-1])
+    current_volume = volumes[-1]
+
+    if avg_volume > 0 and current_volume > avg_volume * volume_multiplier:
         signals.append({
-            "type": "📊 SKOK WOLUMENU",
-            "value": f"x{current_vol/avg_vol:.1f}",
-            "message": "Gruby kapitał wszedł do gry."
+            "category": "BEHAVIOR_CHANGE",
+            "title": "Nietypowo wysoka aktywność",
+            "message": (
+                f"Wolumen {current_volume/avg_volume:.1f}× powyżej średniej.\n"
+                "Rynek zwraca uwagę na spółkę."
+            ),
+            "risk": "ZMIENNE"
         })
 
     return signals
