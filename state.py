@@ -1,28 +1,23 @@
-import json
+import redis
 import os
 from datetime import datetime, timezone
 
-STATE_FILE = "state_cache.json"
+# Railway automatycznie podaje zmienną REDIS_URL lub REDIS_PUBLIC_URL
+# Jeśli Twoja zmienna nazywa się inaczej, zmień nazwę w os.getenv
+REDIS_URL = os.getenv("REDIS_URL")
 
-def load_state():
-    if not os.path.exists(STATE_FILE):
-        return {}
-    try:
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {}
-
-def save_state(state):
-    try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f)
-    except Exception as e:
-        print(f"Błąd zapisu stanu: {e}")
+# Łączymy się z bazą
+try:
+    r = redis.from_url(REDIS_URL, decode_responses=True)
+    print("✅ Połączono z Redisem")
+except Exception as e:
+    print(f"❌ Błąd połączenia z Redisem: {e}")
+    r = None
 
 def get_last_signal_time(symbol):
-    state = load_state()
-    last_time_str = state.get(symbol)
+    if r is None: return None
+    
+    last_time_str = r.get(f"alert:{symbol}")
     if last_time_str:
         try:
             return datetime.fromisoformat(last_time_str).replace(tzinfo=timezone.utc)
@@ -31,6 +26,9 @@ def get_last_signal_time(symbol):
     return None
 
 def set_last_signal_time(symbol, dt):
-    state = load_state()
-    state[symbol] = dt.isoformat()
-    save_state(state)
+    if r is None: return
+    
+    # Zapisujemy timestamp do Redisa
+    # Możemy też ustawić automatyczne wygasanie klucza (TTL), 
+    # ale zostawmy to w logice bota dla pełnej kontroli.
+    r.set(f"alert:{symbol}", dt.isoformat())
