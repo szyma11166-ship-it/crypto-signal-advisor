@@ -240,7 +240,6 @@ def handle_telegram_commands():
                 "/help – pomoc\n"
                 "/papaj"
             )
-``
 
 # =====================================================
 # ANALIZA RYNKU (ZMIANA STANU, NIE CZAS)
