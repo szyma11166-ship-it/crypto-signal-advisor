@@ -2,6 +2,7 @@ import os
 import time
 import ast
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo  # Dodane dla obsługi stref czasowych
 
 import requests
 import yfinance as yf
@@ -17,8 +18,10 @@ from config import (
 from signals import detect_market_signals
 from notifier import send_telegram_message, get_updates
 
+# Ustawienie strefy czasowej dla systemu i Pythona
 os.environ['TZ'] = 'Europe/Warsaw'
 if hasattr(time, 'tzset'): time.tzset()
+PL_TZ = ZoneInfo("Europe/Warsaw")
 
 def send_telegram_photo(photo_path):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -290,7 +293,11 @@ def is_on_cooldown(symbol, now):
     last = get_last_signal_time(symbol)
     if last is None:
         return False
-    elapsed = (now - last.replace(tzinfo=timezone.utc)).total_seconds()
+    # Porównujemy daty w tej samej polskiej strefie czasowej
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=PL_TZ)
+    
+    elapsed = (now - last).total_seconds()
     return elapsed < COOLDOWN
 
 
@@ -313,7 +320,7 @@ def handle_telegram_commands():
                 f"🤖 Status bota\n\n"
                 f"Ostatni skan: {last_check_time}\n"
                 f"Spółek w radarze: {len(ALL_SYMBOLS)}\n"
-                f"Tryb ciszy: {SILENCE_START}:00 – {SILENCE_END}:00 UTC"
+                f"Tryb ciszy: {SILENCE_START}:00 – {SILENCE_END}:00 (Czas PL)"
             )
 
         elif text == "/stats":
@@ -366,7 +373,8 @@ def handle_telegram_commands():
 # =====================================================
 def analyze_market():
     global last_check_time
-    now = datetime.now(timezone.utc)
+    # Pobieramy czas polski zamiast UTC
+    now = datetime.now(PL_TZ)
     last_check_time = now.strftime("%H:%M:%S")
 
     for symbol in ALL_SYMBOLS:
@@ -429,7 +437,7 @@ def analyze_market():
 # START – RESPONSYWNA PĘTLA
 # =====================================================
 if __name__ == "__main__":
-    print(f"🚀 Bot uruchomiony (stabilny, responsywny) | Spółek: {len(ALL_SYMBOLS)}")
+    print(f"🚀 Bot uruchomiony (Czas Polski) | Spółek: {len(ALL_SYMBOLS)}")
 
     while True:
         now_ts = time.time()
