@@ -241,7 +241,7 @@ def handle_telegram_commands():
                 send_telegram_message(msg)
                 
         elif text == "/papaj":
-            send_telegram_message("💛 21:37 💛\nPan kiedyś stanął nad brzegiem...")
+            send_telegram_message("💛 21:37 💛\n")
             # Poniższa linijka wysyła zdjęcie z głównego folderu
             send_telegram_photo("papaj.png")
 
