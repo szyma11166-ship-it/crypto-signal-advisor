@@ -143,5 +143,4 @@ if __name__ == "__main__":
     while True:
         handle_telegram_commands()
         analyze_market()
-        time.sleep(300)
-``
+     time.sleep(300)
