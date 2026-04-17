@@ -35,6 +35,22 @@ def calculate_ema(prices, period=200):
     return pd.Series(prices).ewm(span=period, adjust=False).mean().iloc[-1]
 
 
+# ---------------- ZMIENNOŚĆ (annualized volatility) ----------------
+def calculate_volatility(prices, period=20):
+    """
+    Annualizowana zmienność historyczna na bazie dziennych zwrotów logarytmicznych.
+    Zwraca wartość w procentach (np. 35.2 oznacza 35,2% rocznie).
+    """
+    if len(prices) < period + 1:
+        return None
+
+    recent = prices[-(period + 1):]
+    log_returns = np.diff(np.log(recent))
+    daily_std = np.std(log_returns, ddof=1)
+    annualized = daily_std * np.sqrt(252) * 100  # w procentach
+    return annualized
+
+
 # ---------------- GŁÓWNA LOGIKA ----------------
 def detect_market_signals(
     prices,
@@ -51,11 +67,12 @@ def detect_market_signals(
     current_price = prices[-1]
     rsi = calculate_rsi(prices, rsi_period)
     ema200 = calculate_ema(prices, 200)
+    vol_pct = calculate_volatility(prices, period=20)
 
     # === 1️⃣ SYGNAŁY MOMENTUM / TREND ===
     if rsi is not None and rsi < 30:
         if ema200 and current_price > ema200:
-            # ✅ sygnał w trendzie
+            # ✅ sygnał w trendzie wzrostowym
             signals.append({
                 "category": "TREND_CONFIRMATION",
                 "title": "Korekta w trendzie wzrostowym",
@@ -102,6 +119,23 @@ def detect_market_signals(
                 "Rynek zwraca uwagę na spółkę."
             ),
             "risk": "ZMIENNE"
+        })
+
+    # === 3️⃣ SYGNAŁ ZMIENNOŚCI (volatility_threshold) ===
+    # Używamy teraz volatility_threshold – poprzednio parametr był ignorowany
+    if vol_pct is not None and vol_pct > volatility_threshold * 10:
+        # Domyślnie volatility_threshold=2.0, więc próg to 20% rocznie.
+        # Mnożnik ×10 pozwala zachować dotychczasową konfigurację bez zmian.
+        risk_level = "WYSOKIE" if vol_pct > volatility_threshold * 20 else "ŚREDNIE"
+        signals.append({
+            "category": "BEHAVIOR_CHANGE",
+            "title": "Podwyższona zmienność historyczna",
+            "message": (
+                f"Zmienność 20-dniowa (annualizowana): {vol_pct:.1f}%.\n"
+                "Instrument wykazuje ponadnormatywne wahania cen – "
+                "szersze stop-lossy lub mniejsza pozycja."
+            ),
+            "risk": risk_level
         })
 
     return signals
