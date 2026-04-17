@@ -245,7 +245,7 @@ def handle_telegram_commands():
                     )
                 send_telegram_message(msg)
 
-        elif text == "/papaji":
+        elif text == "/papaj":
             send_telegram_photo("papaj.png")
 
         elif text == "/help":
