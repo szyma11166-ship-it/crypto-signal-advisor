@@ -1,7 +1,8 @@
 import os
 import time
 import ast
-from datetime import datetime, timezone
+import math
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import requests
@@ -49,15 +50,58 @@ def set_last_signal_time(symbol, dt):
     r.set(f"cooldown:{symbol}", dt.isoformat())
 
 def get_last_state(symbol):
-    """Zwraca (date_str, state) lub (None, None)."""
+    """Zwraca dict z {date, category, verdict, value} lub None."""
     val = r.get(f"last_state:{symbol}")
-    if not val or "|" not in val:
-        return None, None
-    date_str, state = val.split("|", 1)
-    return date_str, state
+    if not val:
+        return None
+    try:
+        return ast.literal_eval(val)
+    except Exception:
+        return None
 
-def set_last_state(symbol, state, date_str):
-    r.set(f"last_state:{symbol}", f"{date_str}|{state}")
+def set_last_state(symbol, category, verdict, value):
+    today = datetime.now(PL_TZ).strftime("%Y-%m-%d")
+    entry = {
+        "date": today,
+        "category": category,
+        "verdict": verdict,
+        "value": round(value, 1) if value is not None else None,
+    }
+    r.set(f"last_state:{symbol}", str(entry))
+
+def extract_signal_value(signal):
+    """Wyciąga liczbową wartość z sygnału do porównania (RSI lub vol_pct)."""
+    import re
+    msg = signal.get("message", "")
+    # Szukaj pierwszej liczby zmiennoprzecinkowej w treści
+    match = re.search(r"(\d+\.\d+)", msg)
+    return float(match.group(1)) if match else None
+
+def is_significant_change(signal, last_state):
+    """
+    Zwraca True jeśli sygnał jest nową informacją wartą wysłania.
+    Reguły:
+    - Inna kategoria lub verdict → zawsze wysyłaj
+    - Ta sama kategoria, ale wartość zmieniła się o >5pp → wysyłaj
+    - Ta sama kategoria, zmiana <=5pp → blokuj (to samo co wczoraj)
+    """
+    if last_state is None:
+        return True
+
+    current_category = f"{signal['category']}|{signal['verdict'] if 'verdict' in signal else ''}"
+    last_category = f"{last_state.get('category', '')}|{last_state.get('verdict', '')}"
+
+    if current_category != last_category:
+        return True
+
+    # Ta sama kategoria — sprawdź czy wartość się zmieniła istotnie
+    current_val = extract_signal_value(signal)
+    last_val = last_state.get("value")
+
+    if current_val is None or last_val is None:
+        return False  # brak wartości — nie wysyłaj duplikatu
+
+    return abs(current_val - last_val) >= 5.0
 
 def save_signal(symbol, signal, verdict, dt, max_items=200):
     entry = {
@@ -214,7 +258,8 @@ def handle_telegram_commands():
                 "Kategorie sygnałów:\n"
                 "• TREND_CONFIRMATION - Silny ruch zgodnie z trendem.\n"
                 "• CONTRARIAN - Przegrzanie rynku / sygnał odwrotu.\n"
-                "• BEHAVIOR_CHANGE - Nagłe wyłamanie z konsolidacji."
+                "• BEHAVIOR_CHANGE - Nagłe wyłamanie z konsolidacji.\n\n"
+                "Bot wysyła alert tylko gdy sygnał jest nowy lub wartość zmieniła się o ponad 5pp."
             )
             send_telegram_message(msg)
 
@@ -263,7 +308,6 @@ def handle_telegram_commands():
         elif text == "/debug":
             try:
                 now = datetime.now(PL_TZ)
-                today = now.strftime("%Y-%m-%d")
                 debug_symbols = ["GLD", "SLV", "USO", "CPER", "URA"]
                 msg = f"🔍 Debug — {now.strftime('%H:%M:%S')}\n"
                 msg += f"Cisza nocna: {is_night_silence(now)}\n"
@@ -274,18 +318,23 @@ def handle_telegram_commands():
                     prices, vols = get_market_data(sym)
                     signals = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
                     cd = is_on_cooldown(sym, now)
-                    last = get_last_signal_time(sym)
-                    last_str = last.strftime('%Y-%m-%d %H:%M') if last else "brak"
-                    saved_date, saved_state = get_last_state(sym)
-                    state_info = f"{saved_state} ({saved_date})" if saved_state else "brak"
-                    blocked = saved_date == today and saved_state == (signals[0]["category"] if signals else "")
+                    last_t = get_last_signal_time(sym)
+                    last_str = last_t.strftime('%Y-%m-%d %H:%M') if last_t else "brak"
+                    last_state = get_last_state(sym)
+
+                    sig_info = []
+                    for s in signals:
+                        val = extract_signal_value(s)
+                        sig_info.append(f"{s['category']} ({val})")
+                        significant = is_significant_change(s, last_state)
+
                     msg += (
                         f"📊 {sym}\n"
                         f"  Dane: {len(prices)} próbek\n"
-                        f"  Sygnały: {len(signals)}\n"
-                        f"  Cooldown: {'🔴 TAK' if cd else '🟢 NIE'} (ostatni: {last_str})\n"
-                        f"  Ostatni stan: {state_info}\n"
-                        f"  Zablokowany przez stan: {'🔴 TAK' if blocked else '🟢 NIE'}\n\n"
+                        f"  Sygnały: {', '.join(sig_info) if sig_info else 'brak'}\n"
+                        f"  Cooldown: {'🔴 TAK' if cd else '🟢 NIE'} ({last_str})\n"
+                        f"  Ostatni stan: {last_state}\n"
+                        f"  Wysłałby: {'🟢 TAK' if signals and is_significant_change(signals[0], last_state) and not cd else '🔴 NIE'}\n\n"
                     )
 
                 send_telegram_message(msg)
@@ -314,7 +363,6 @@ def handle_telegram_commands():
 def analyze_market():
     global last_check_time
     now = datetime.now(PL_TZ)
-    today = now.strftime("%Y-%m-%d")
     last_check_time = now.strftime("%H:%M:%S")
 
     for symbol in ALL_SYMBOLS:
@@ -324,20 +372,22 @@ def analyze_market():
         signals = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
         if not signals or is_night_silence(now): continue
 
+        last_state = get_last_state(symbol)
+
         for s in signals:
-            verdict = "✅ KUPUJ" if s["category"] == "TREND_CONFIRMATION" else "❌ SPRZEDAJ / OMIJAJ" if s["category"] == "CONTRARIAN" else "⏸ OBSERWUJ"
-            current_state = f"{s['category']}|{verdict}"
-
-            saved_date, saved_state = get_last_state(symbol)
-
-            # Blokuj tylko jeśli ten sam stan wysłany JUŻ DZIŚ
-            if saved_date == today and saved_state == current_state:
+            if not is_significant_change(s, last_state):
                 continue
-
             if is_on_cooldown(symbol, now):
                 continue
 
-            set_last_state(symbol, current_state, today)
+            verdict = (
+                "✅ KUPUJ" if s["category"] == "TREND_CONFIRMATION"
+                else "❌ SPRZEDAJ / OMIJAJ" if s["category"] == "CONTRARIAN"
+                else "⏸ OBSERWUJ"
+            )
+            val = extract_signal_value(s)
+            set_last_state(symbol, s["category"], verdict, val)
+
             company = COMPANY_NAMES.get(symbol, symbol)
             market = "GPW" if symbol in GPW_SYMBOLS else "USA/ETF"
 
