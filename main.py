@@ -49,10 +49,15 @@ def set_last_signal_time(symbol, dt):
     r.set(f"cooldown:{symbol}", dt.isoformat())
 
 def get_last_state(symbol):
-    return r.get(f"last_state:{symbol}")
+    """Zwraca (date_str, state) lub (None, None)."""
+    val = r.get(f"last_state:{symbol}")
+    if not val or "|" not in val:
+        return None, None
+    date_str, state = val.split("|", 1)
+    return date_str, state
 
-def set_last_state(symbol, state):
-    r.set(f"last_state:{symbol}", state)
+def set_last_state(symbol, state, date_str):
+    r.set(f"last_state:{symbol}", f"{date_str}|{state}")
 
 def save_signal(symbol, signal, verdict, dt, max_items=200):
     entry = {
@@ -258,6 +263,7 @@ def handle_telegram_commands():
         elif text == "/debug":
             try:
                 now = datetime.now(PL_TZ)
+                today = now.strftime("%Y-%m-%d")
                 debug_symbols = ["GLD", "SLV", "USO", "CPER", "URA"]
                 msg = f"🔍 Debug — {now.strftime('%H:%M:%S')}\n"
                 msg += f"Cisza nocna: {is_night_silence(now)}\n"
@@ -270,11 +276,16 @@ def handle_telegram_commands():
                     cd = is_on_cooldown(sym, now)
                     last = get_last_signal_time(sym)
                     last_str = last.strftime('%Y-%m-%d %H:%M') if last else "brak"
+                    saved_date, saved_state = get_last_state(sym)
+                    state_info = f"{saved_state} ({saved_date})" if saved_state else "brak"
+                    blocked = saved_date == today and saved_state == (signals[0]["category"] if signals else "")
                     msg += (
                         f"📊 {sym}\n"
                         f"  Dane: {len(prices)} próbek\n"
                         f"  Sygnały: {len(signals)}\n"
-                        f"  Cooldown: {'🔴 TAK' if cd else '🟢 NIE'} (ostatni: {last_str})\n\n"
+                        f"  Cooldown: {'🔴 TAK' if cd else '🟢 NIE'} (ostatni: {last_str})\n"
+                        f"  Ostatni stan: {state_info}\n"
+                        f"  Zablokowany przez stan: {'🔴 TAK' if blocked else '🟢 NIE'}\n\n"
                     )
 
                 send_telegram_message(msg)
@@ -303,6 +314,7 @@ def handle_telegram_commands():
 def analyze_market():
     global last_check_time
     now = datetime.now(PL_TZ)
+    today = now.strftime("%Y-%m-%d")
     last_check_time = now.strftime("%H:%M:%S")
 
     for symbol in ALL_SYMBOLS:
@@ -315,9 +327,17 @@ def analyze_market():
         for s in signals:
             verdict = "✅ KUPUJ" if s["category"] == "TREND_CONFIRMATION" else "❌ SPRZEDAJ / OMIJAJ" if s["category"] == "CONTRARIAN" else "⏸ OBSERWUJ"
             current_state = f"{s['category']}|{verdict}"
-            if current_state == get_last_state(symbol) or is_on_cooldown(symbol, now): continue
 
-            set_last_state(symbol, current_state)
+            saved_date, saved_state = get_last_state(symbol)
+
+            # Blokuj tylko jeśli ten sam stan wysłany JUŻ DZIŚ
+            if saved_date == today and saved_state == current_state:
+                continue
+
+            if is_on_cooldown(symbol, now):
+                continue
+
+            set_last_state(symbol, current_state, today)
             company = COMPANY_NAMES.get(symbol, symbol)
             market = "GPW" if symbol in GPW_SYMBOLS else "USA/ETF"
 
