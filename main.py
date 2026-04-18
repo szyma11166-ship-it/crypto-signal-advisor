@@ -18,7 +18,6 @@ from config import (
 from signals import detect_market_signals
 from notifier import send_telegram_message, get_updates
 
-# Ustawienie strefy czasowej
 os.environ['TZ'] = 'Europe/Warsaw'
 if hasattr(time, 'tzset'): time.tzset()
 PL_TZ = ZoneInfo("Europe/Warsaw")
@@ -37,7 +36,7 @@ def send_telegram_photo(photo_path):
         print(f"❌ Nie udało się wysłać zdjęcia: {e}")
 
 # =====================================================
-# REDIS – JEDYNE ŹRÓDŁO STANU
+# REDIS
 # =====================================================
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
@@ -72,7 +71,7 @@ def save_signal(symbol, signal, verdict, dt, max_items=200):
     r.incr(f"stats:symbol:{symbol}")
 
 # =====================================================
-# PEŁNE NAZWY + RYNKI
+# NAZWY + RYNKI
 # =====================================================
 COMPANY_NAMES = {
     "PKO": "PKO Bank Polski", "PEO": "Bank Pekao S.A.", "PZU": "PZU S.A.",
@@ -204,9 +203,9 @@ def handle_telegram_commands():
             msg = (
                 "⚙️ Logika wyliczania sygnałów\n\n"
                 "Bot analizuje dane historyczne (ostatnie 300 sesji) pod kątem trzech kluczowych parametrów:\n\n"
-                f"1️⃣ Zmienność: Wyliczana jako odchylenie standardowe zmian procentowych. Sygnał generowany, gdy bieżąca zmienność przekracza próg {VOLATILITY_THRESHOLD * 100}%.\n"
-                f"2️⃣ Wolumen: Porównanie bieżącego wolumenu do średniej ruchomej. Wymagane przebicie średniej o mnożnik {VOLUME_MULTIPLIER}x.\n"
-                "3️⃣ Zmiana Zachowania: Bot wykrywa anomalie, gdy cena zachowuje się nietypowo względem trendu z ostatnich 50 dni.\n\n"
+                f"1️⃣ Zmienność: Odchylenie standardowe zmian procentowych. Próg: {VOLATILITY_THRESHOLD * 100}%.\n"
+                f"2️⃣ Wolumen: Porównanie do średniej ruchomej. Mnożnik: {VOLUME_MULTIPLIER}x.\n"
+                "3️⃣ Zmiana Zachowania: Anomalie względem trendu z ostatnich 50 dni.\n\n"
                 "Kategorie sygnałów:\n"
                 "• TREND_CONFIRMATION - Silny ruch zgodnie z trendem.\n"
                 "• CONTRARIAN - Przegrzanie rynku / sygnał odwrotu.\n"
@@ -232,7 +231,6 @@ def handle_telegram_commands():
 
         elif text == "/last":
             try:
-                # Pipeline — wszystkie lrange w jednym round-tripie do Redis
                 pipe = r.pipeline()
                 for symbol in ALL_SYMBOLS:
                     pipe.lrange(f"signals:{symbol}", 0, 0)
@@ -257,6 +255,32 @@ def handle_telegram_commands():
             except Exception as e:
                 send_telegram_message(f"❌ Błąd /last: {e}")
 
+        elif text == "/debug":
+            try:
+                now = datetime.now(PL_TZ)
+                debug_symbols = ["GLD", "SLV", "USO", "CPER", "URA"]
+                msg = f"🔍 Debug — {now.strftime('%H:%M:%S')}\n"
+                msg += f"Cisza nocna: {is_night_silence(now)}\n"
+                msg += f"Próg zmienności: {VOLATILITY_THRESHOLD} | Mnożnik vol: {VOLUME_MULTIPLIER}\n"
+                msg += f"Cooldown: {COOLDOWN}s ({COOLDOWN//3600}h)\n\n"
+
+                for sym in debug_symbols:
+                    prices, vols = get_market_data(sym)
+                    signals = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
+                    cd = is_on_cooldown(sym, now)
+                    last = get_last_signal_time(sym)
+                    last_str = last.strftime('%Y-%m-%d %H:%M') if last else "brak"
+                    msg += (
+                        f"📊 {sym}\n"
+                        f"  Dane: {len(prices)} próbek\n"
+                        f"  Sygnały: {len(signals)}\n"
+                        f"  Cooldown: {'🔴 TAK' if cd else '🟢 NIE'} (ostatni: {last_str})\n\n"
+                    )
+
+                send_telegram_message(msg)
+            except Exception as e:
+                send_telegram_message(f"❌ Błąd /debug: {e}")
+
         elif text == "/papaj":
             send_telegram_message("💛 21:37 💛\n")
             send_telegram_photo("papaj.png")
@@ -269,6 +293,7 @@ def handle_telegram_commands():
                 "/info - Jak bot liczy sygnały\n"
                 "/stats - Statystyki wykryć\n"
                 "/last - 5 ostatnich alertów\n"
+                "/debug - Diagnostyka sygnałów (surowce)\n"
                 "/papaj"
             )
 
