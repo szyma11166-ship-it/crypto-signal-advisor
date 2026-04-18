@@ -195,7 +195,6 @@ def handle_telegram_commands():
         elif text == "/list":
             gpw = [s for s in ALL_SYMBOLS if s in GPW_SYMBOLS]
             usa = [s for s in ALL_SYMBOLS if s in YAHOO_SYMBOLS]
-            
             msg = "🏢 Obsługiwane spółki:\n\n"
             msg += "🇵🇱 GPW: " + ", ".join(gpw) + "\n\n"
             msg += "🌎 USA / Europa / ETF: " + ", ".join(usa)
@@ -205,49 +204,66 @@ def handle_telegram_commands():
             msg = (
                 "⚙️ Logika wyliczania sygnałów\n\n"
                 "Bot analizuje dane historyczne (ostatnie 300 sesji) pod kątem trzech kluczowych parametrów:\n\n"
-                f"1️⃣ Zmienność ($V_{{ola}}$): Wyliczana jako odchylenie standardowe zmian procentowych. Sygnał generowany, gdy bieżąca zmienność przekracza próg `{VOLATILITY_THRESHOLD * 100}%`.\n"
-                f"2️⃣ Wolumen ($Vol$): Porównanie bieżącego wolumenu do średniej ruchomej. Wymagane przebicie średniej o mnożnik `{VOLUME_MULTIPLIER}`x.\n"
+                f"1️⃣ Zmienność: Wyliczana jako odchylenie standardowe zmian procentowych. Sygnał generowany, gdy bieżąca zmienność przekracza próg {VOLATILITY_THRESHOLD * 100}%.\n"
+                f"2️⃣ Wolumen: Porównanie bieżącego wolumenu do średniej ruchomej. Wymagane przebicie średniej o mnożnik {VOLUME_MULTIPLIER}x.\n"
                 "3️⃣ Zmiana Zachowania: Bot wykrywa anomalie, gdy cena zachowuje się nietypowo względem trendu z ostatnich 50 dni.\n\n"
                 "Kategorie sygnałów:\n"
-                "• `TREND_CONFIRMATION` - Silny ruch zgodnie z trendem.\n"
-                "• `CONTRARIAN` - Przegrzanie rynku / sygnał odwrotu.\n"
-                "• `BEHAVIOR_CHANGE` - Nagłe wyłamanie z konsolidacji."
+                "• TREND_CONFIRMATION - Silny ruch zgodnie z trendem.\n"
+                "• CONTRARIAN - Przegrzanie rynku / sygnał odwrotu.\n"
+                "• BEHAVIOR_CHANGE - Nagłe wyłamanie z konsolidacji."
             )
             send_telegram_message(msg)
 
         elif text == "/stats":
-            send_telegram_message(
-                f"📊 Statystyki\n\n"
-                f"Łącznie: {r.get('stats:total') or 0}\n"
-                f"Trendowe: {r.get('stats:TREND_CONFIRMATION') or 0}\n"
-                f"Kontrariańskie: {r.get('stats:CONTRARIAN') or 0}\n"
-                f"Zmiana zachowania: {r.get('stats:BEHAVIOR_CHANGE') or 0}"
-            )
+            try:
+                total = int(r.get('stats:total') or 0)
+                trend = int(r.get('stats:TREND_CONFIRMATION') or 0)
+                contra = int(r.get('stats:CONTRARIAN') or 0)
+                behav = int(r.get('stats:BEHAVIOR_CHANGE') or 0)
+                send_telegram_message(
+                    f"📊 Statystyki\n\n"
+                    f"Łącznie: {total}\n"
+                    f"Trendowe: {trend}\n"
+                    f"Kontrariańskie: {contra}\n"
+                    f"Zmiana zachowania: {behav}"
+                )
+            except Exception as e:
+                send_telegram_message(f"❌ Błąd /stats: {e}")
 
         elif text == "/last":
-            messages = []
-            for symbol in ALL_SYMBOLS:
-                items = r.lrange(f"signals:{symbol}", 0, 0)
-                if items:
-                    try: messages.append(ast.literal_eval(items[0]))
-                    except Exception: pass
-            if not messages:
-                send_telegram_message("Brak zapisanych sygnałów.")
-            else:
-                messages.sort(key=lambda x: x["time"], reverse=True)
-                msg = "📡 Ostatnie sygnały\n\n"
-                for s in messages[:5]:
-                    msg += f"• {s['symbol']}: {s['verdict']} ({s['title']})\n"
-                send_telegram_message(msg)
-                
+            try:
+                # Pipeline — wszystkie lrange w jednym round-tripie do Redis
+                pipe = r.pipeline()
+                for symbol in ALL_SYMBOLS:
+                    pipe.lrange(f"signals:{symbol}", 0, 0)
+                results = pipe.execute()
+
+                messages = []
+                for symbol, items in zip(ALL_SYMBOLS, results):
+                    if items:
+                        try:
+                            messages.append(ast.literal_eval(items[0]))
+                        except Exception as parse_err:
+                            print(f"⚠️ Parse error {symbol}: {parse_err} | raw: {items[0][:100]}")
+
+                if not messages:
+                    send_telegram_message("Brak zapisanych sygnałów.")
+                else:
+                    messages.sort(key=lambda x: x["time"], reverse=True)
+                    msg = "📡 Ostatnie sygnały\n\n"
+                    for s in messages[:5]:
+                        msg += f"• {s['symbol']}: {s['verdict']} ({s['title']})\n"
+                    send_telegram_message(msg)
+            except Exception as e:
+                send_telegram_message(f"❌ Błąd /last: {e}")
+
         elif text == "/papaj":
             send_telegram_message("💛 21:37 💛\n")
-            # Poniższa linijka wysyła zdjęcie z głównego folderu
             send_telegram_photo("papaj.png")
 
         elif text == "/help":
             send_telegram_message(
-                "📖 *Dostępne komendy:*\n"
+                "📖 Dostępne komendy:\n"
                 "/status - Stan pracy bota\n"
                 "/list - Spis wszystkich spółek\n"
                 "/info - Jak bot liczy sygnały\n"
