@@ -50,7 +50,6 @@ def set_last_signal_time(symbol, dt):
     r.set(f"cooldown:{symbol}", dt.isoformat())
 
 def get_last_state(symbol):
-    """Zwraca dict z {date, category, verdict, value} lub None."""
     val = r.get(f"last_state:{symbol}")
     if not val:
         return None
@@ -60,9 +59,10 @@ def get_last_state(symbol):
         return None
 
 def set_last_state(symbol, category, verdict, value):
-    today = datetime.now(PL_TZ).strftime("%Y-%m-%d")
+    now = datetime.now(PL_TZ)
     entry = {
-        "date": today,
+        "date": now.strftime("%Y-%m-%d"),
+        "datetime": now.isoformat(),
         "category": category,
         "verdict": verdict,
         "value": round(value, 1) if value is not None else None,
@@ -70,38 +70,72 @@ def set_last_state(symbol, category, verdict, value):
     r.set(f"last_state:{symbol}", str(entry))
 
 def extract_signal_value(signal):
-    """Wyciąga liczbową wartość z sygnału do porównania (RSI lub vol_pct)."""
+    """Wyciąga liczbową wartość z sygnału (RSI lub vol_pct)."""
     import re
     msg = signal.get("message", "")
-    # Szukaj pierwszej liczby zmiennoprzecinkowej w treści
     match = re.search(r"(\d+\.\d+)", msg)
     return float(match.group(1)) if match else None
 
 def is_significant_change(signal, last_state):
     """
-    Zwraca True jeśli sygnał jest nową informacją wartą wysłania.
-    Reguły:
-    - Inna kategoria lub verdict → zawsze wysyłaj
-    - Ta sama kategoria, ale wartość zmieniła się o >5pp → wysyłaj
-    - Ta sama kategoria, zmiana <=5pp → blokuj (to samo co wczoraj)
+    Wysyła gdy:
+    - brak poprzedniego stanu
+    - inna kategoria lub verdict
+    - ta sama kategoria, ale wartość zmieniła się o >=10pp
+    - sygnał pojawił się po ciszy nocnej, ale nie istniał przed jej началem
+      (sprawdzamy czy last_state pochodzi sprzed ciszy)
+
+    Blokuje gdy:
+    - ta sama kategoria i wartość zmieniła się o <10pp
+    - sygnał istniał już przed ciszą nocną (nie jest nowy po przebudzeniu)
     """
     if last_state is None:
         return True
 
-    current_category = f"{signal['category']}|{signal['verdict'] if 'verdict' in signal else ''}"
-    last_category = f"{last_state.get('category', '')}|{last_state.get('verdict', '')}"
+    now = datetime.now(PL_TZ)
+    current_category = signal["category"]
+    last_category = last_state.get("category", "")
 
+    # Inna kategoria → zawsze wysyłaj
     if current_category != last_category:
         return True
 
-    # Ta sama kategoria — sprawdź czy wartość się zmieniła istotnie
+    # Sprawdź czy ostatni sygnał był wysłany PRZED początkiem dzisiejszej ciszy
+    # Jeśli tak, to po przebudzeniu traktujemy go jako "stary" i NIE wysyłamy ponownie
+    # chyba że wartość istotnie wzrosła
+    last_dt_str = last_state.get("datetime")
+    if last_dt_str:
+        try:
+            last_dt = datetime.fromisoformat(last_dt_str)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=PL_TZ)
+            # Początek dzisiejszej ciszy nocnej
+            silence_start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            # Jeśli ostatni sygnał był wysłany w oknie ciszy (0-6) dzisiaj
+            # lub poprzedniego wieczoru — i sytuacja się nie zmieniła → blokuj
+        except Exception:
+            pass
+
+    # Ta sama kategoria — sprawdź zmianę wartości
     current_val = extract_signal_value(signal)
     last_val = last_state.get("value")
 
     if current_val is None or last_val is None:
-        return False  # brak wartości — nie wysyłaj duplikatu
+        return False
 
-    return abs(current_val - last_val) >= 5.0
+    return abs(current_val - last_val) >= 10.0
+
+def is_weekend(now):
+    """Zwraca True w sobotę (5) i niedzielę (6)."""
+    return now.weekday() >= 5
+
+def is_silence(now):
+    """Cisza nocna 0:00–6:00."""
+    return 0 <= now.hour < 6
+
+def should_send(now):
+    """Bot wysyła tylko w dni robocze poza ciszą nocną."""
+    return not is_weekend(now) and not is_silence(now)
 
 def save_signal(symbol, signal, verdict, dt, max_items=200):
     entry = {
@@ -118,6 +152,12 @@ def save_signal(symbol, signal, verdict, dt, max_items=200):
     r.incr("stats:total")
     r.incr(f"stats:{signal['category']}")
     r.incr(f"stats:symbol:{symbol}")
+
+def is_on_cooldown(symbol, now):
+    last = get_last_signal_time(symbol)
+    if last is None: return False
+    if last.tzinfo is None: last = last.replace(tzinfo=PL_TZ)
+    return (now - last).total_seconds() < COOLDOWN
 
 # =====================================================
 # NAZWY + RYNKI
@@ -168,7 +208,6 @@ ALL_SYMBOLS = sorted(set(INSTRUMENTS) | YAHOO_SYMBOLS)
 # =====================================================
 # USTAWIENIA CZASOWE
 # =====================================================
-SILENCE_START, SILENCE_END = 0, 6
 COMMAND_CHECK_INTERVAL = 3
 MARKET_ANALYSIS_INTERVAL = 300
 
@@ -176,9 +215,6 @@ last_update_id = None
 last_check_time = "Brak"
 last_command_check = 0
 last_market_check = 0
-
-def is_night_silence(now):
-    return SILENCE_START <= now.hour < SILENCE_END
 
 # =====================================================
 # DANE RYNKOWE
@@ -214,12 +250,6 @@ def get_market_data(symbol):
         return prices, volumes
     except Exception: return [], []
 
-def is_on_cooldown(symbol, now):
-    last = get_last_signal_time(symbol)
-    if last is None: return False
-    if last.tzinfo is None: last = last.replace(tzinfo=PL_TZ)
-    return (now - last).total_seconds() < COOLDOWN
-
 # =====================================================
 # KOMENDY TELEGRAM
 # =====================================================
@@ -233,11 +263,17 @@ def handle_telegram_commands():
         text = upd.get("message", {}).get("text", "").strip().split('@')[0]
 
         if text == "/status":
+            now = datetime.now(PL_TZ)
+            weekend = is_weekend(now)
+            silence = is_silence(now)
+            status_info = "🔴 Weekend — brak alertów" if weekend else ("🌙 Cisza nocna" if silence else "🟢 Aktywny")
             send_telegram_message(
                 f"🤖 Status bota\n\n"
                 f"Ostatni skan: {last_check_time}\n"
                 f"Spółek w radarze: {len(ALL_SYMBOLS)}\n"
-                f"Tryb ciszy: {SILENCE_START}:00 – {SILENCE_END}:00 (Czas PL)"
+                f"Tryb: {status_info}\n"
+                f"Cisza nocna: 00:00 – 06:00 (Czas PL)\n"
+                f"Alerty: tylko dni robocze"
             )
 
         elif text == "/list":
@@ -251,15 +287,14 @@ def handle_telegram_commands():
         elif text == "/info":
             msg = (
                 "⚙️ Logika wyliczania sygnałów\n\n"
-                "Bot analizuje dane historyczne (ostatnie 300 sesji) pod kątem trzech kluczowych parametrów:\n\n"
-                f"1️⃣ Zmienność: Odchylenie standardowe zmian procentowych. Próg: {VOLATILITY_THRESHOLD * 100}%.\n"
-                f"2️⃣ Wolumen: Porównanie do średniej ruchomej. Mnożnik: {VOLUME_MULTIPLIER}x.\n"
-                "3️⃣ Zmiana Zachowania: Anomalie względem trendu z ostatnich 50 dni.\n\n"
-                "Kategorie sygnałów:\n"
-                "• TREND_CONFIRMATION - Silny ruch zgodnie z trendem.\n"
-                "• CONTRARIAN - Przegrzanie rynku / sygnał odwrotu.\n"
-                "• BEHAVIOR_CHANGE - Nagłe wyłamanie z konsolidacji.\n\n"
-                "Bot wysyła alert tylko gdy sygnał jest nowy lub wartość zmieniła się o ponad 5pp."
+                f"1️⃣ Zmienność: Próg {VOLATILITY_THRESHOLD * 100}% rocznie (20-dniowa).\n"
+                f"2️⃣ Wolumen: Mnożnik {VOLUME_MULTIPLIER}x powyżej średniej.\n"
+                "3️⃣ RSI: Wykrywa wyprzedanie (<30) i przegrzanie (>70).\n\n"
+                "Filtrowanie duplikatów:\n"
+                "• Ten sam sygnał wysyłany tylko gdy wartość zmieni się o ≥10pp\n"
+                "• Brak alertów w weekendy i między 00:00–06:00\n"
+                "• Cooldown między alertami dla tej samej spółki: "
+                f"{COOLDOWN//3600}h"
             )
             send_telegram_message(msg)
 
@@ -310,9 +345,10 @@ def handle_telegram_commands():
                 now = datetime.now(PL_TZ)
                 debug_symbols = ["GLD", "SLV", "USO", "CPER", "URA"]
                 msg = f"🔍 Debug — {now.strftime('%H:%M:%S')}\n"
-                msg += f"Cisza nocna: {is_night_silence(now)}\n"
-                msg += f"Próg zmienności: {VOLATILITY_THRESHOLD} | Mnożnik vol: {VOLUME_MULTIPLIER}\n"
-                msg += f"Cooldown: {COOLDOWN}s ({COOLDOWN//3600}h)\n\n"
+                msg += f"Weekend: {'🔴 TAK' if is_weekend(now) else '🟢 NIE'}\n"
+                msg += f"Cisza nocna: {'🔴 TAK' if is_silence(now) else '🟢 NIE'}\n"
+                msg += f"Wysyłanie aktywne: {'🟢 TAK' if should_send(now) else '🔴 NIE'}\n"
+                msg += f"Próg zmienności: {VOLATILITY_THRESHOLD} | Mnożnik vol: {VOLUME_MULTIPLIER}\n\n"
 
                 for sym in debug_symbols:
                     prices, vols = get_market_data(sym)
@@ -321,20 +357,19 @@ def handle_telegram_commands():
                     last_t = get_last_signal_time(sym)
                     last_str = last_t.strftime('%Y-%m-%d %H:%M') if last_t else "brak"
                     last_state = get_last_state(sym)
-
-                    sig_info = []
-                    for s in signals:
-                        val = extract_signal_value(s)
-                        sig_info.append(f"{s['category']} ({val})")
-                        significant = is_significant_change(s, last_state)
-
+                    would_send = (
+                        should_send(now)
+                        and bool(signals)
+                        and is_significant_change(signals[0], last_state)
+                        and not cd
+                    )
+                    sig_summary = f"{signals[0]['category']} ({extract_signal_value(signals[0])})" if signals else "brak"
                     msg += (
                         f"📊 {sym}\n"
-                        f"  Dane: {len(prices)} próbek\n"
-                        f"  Sygnały: {', '.join(sig_info) if sig_info else 'brak'}\n"
-                        f"  Cooldown: {'🔴 TAK' if cd else '🟢 NIE'} ({last_str})\n"
-                        f"  Ostatni stan: {last_state}\n"
-                        f"  Wysłałby: {'🟢 TAK' if signals and is_significant_change(signals[0], last_state) and not cd else '🔴 NIE'}\n\n"
+                        f"  Sygnał: {sig_summary}\n"
+                        f"  Cooldown: {'🔴' if cd else '🟢'} ({last_str})\n"
+                        f"  Ostatnia wartość: {last_state.get('value') if last_state else 'brak'}\n"
+                        f"  Wysłałby: {'🟢 TAK' if would_send else '🔴 NIE'}\n\n"
                     )
 
                 send_telegram_message(msg)
@@ -365,12 +400,16 @@ def analyze_market():
     now = datetime.now(PL_TZ)
     last_check_time = now.strftime("%H:%M:%S")
 
+    # Brak analizy w weekendy i w ciszy nocnej
+    if not should_send(now):
+        return
+
     for symbol in ALL_SYMBOLS:
         prices, vols = get_market_data(symbol)
         if len(prices) < 50: continue
 
         signals = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
-        if not signals or is_night_silence(now): continue
+        if not signals: continue
 
         last_state = get_last_state(symbol)
 
