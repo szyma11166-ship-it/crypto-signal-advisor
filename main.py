@@ -375,4 +375,3 @@ if __name__ == "__main__":
             last_market_check = time.time()
 
         time.sleep(1)
-``
