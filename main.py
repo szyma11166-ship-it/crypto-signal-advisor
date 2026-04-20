@@ -307,10 +307,9 @@ def handle_telegram_commands():
                 "/stats – statystyki\n"
                 "/last – ostatnie sygnały\n"
                 "/help – pomoc\n"
-                "/info - logika"
+                "/info - logika\n"
                 "/why - poprawność logiki\n"
                 "/papaj"
-                "/status /list /info /stats /last /why /debug /papaj"
             )
 
 
