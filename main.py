@@ -70,71 +70,29 @@ def set_last_state(symbol, category, verdict, value):
     r.set(f"last_state:{symbol}", str(entry))
 
 def extract_signal_value(signal):
-    """Wyciąga liczbową wartość z sygnału (RSI lub vol_pct)."""
     import re
     msg = signal.get("message", "")
     match = re.search(r"(\d+\.\d+)", msg)
     return float(match.group(1)) if match else None
 
 def is_significant_change(signal, last_state):
-    """
-    Wysyła gdy:
-    - brak poprzedniego stanu
-    - inna kategoria lub verdict
-    - ta sama kategoria, ale wartość zmieniła się o >=10pp
-    - sygnał pojawił się po ciszy nocnej, ale nie istniał przed jej началem
-      (sprawdzamy czy last_state pochodzi sprzed ciszy)
-
-    Blokuje gdy:
-    - ta sama kategoria i wartość zmieniła się o <10pp
-    - sygnał istniał już przed ciszą nocną (nie jest nowy po przebudzeniu)
-    """
     if last_state is None:
         return True
-
-    now = datetime.now(PL_TZ)
-    current_category = signal["category"]
-    last_category = last_state.get("category", "")
-
-    # Inna kategoria → zawsze wysyłaj
-    if current_category != last_category:
+    if signal["category"] != last_state.get("category", ""):
         return True
-
-    # Sprawdź czy ostatni sygnał był wysłany PRZED początkiem dzisiejszej ciszy
-    # Jeśli tak, to po przebudzeniu traktujemy go jako "stary" i NIE wysyłamy ponownie
-    # chyba że wartość istotnie wzrosła
-    last_dt_str = last_state.get("datetime")
-    if last_dt_str:
-        try:
-            last_dt = datetime.fromisoformat(last_dt_str)
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=PL_TZ)
-            # Początek dzisiejszej ciszy nocnej
-            silence_start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            # Jeśli ostatni sygnał był wysłany w oknie ciszy (0-6) dzisiaj
-            # lub poprzedniego wieczoru — i sytuacja się nie zmieniła → blokuj
-        except Exception:
-            pass
-
-    # Ta sama kategoria — sprawdź zmianę wartości
     current_val = extract_signal_value(signal)
     last_val = last_state.get("value")
-
     if current_val is None or last_val is None:
         return False
-
     return abs(current_val - last_val) >= 10.0
 
 def is_weekend(now):
-    """Zwraca True w sobotę (5) i niedzielę (6)."""
     return now.weekday() >= 5
 
 def is_silence(now):
-    """Cisza nocna 0:00–6:00."""
     return 0 <= now.hour < 6
 
 def should_send(now):
-    """Bot wysyła tylko w dni robocze poza ciszą nocną."""
     return not is_weekend(now) and not is_silence(now)
 
 def save_signal(symbol, signal, verdict, dt, max_items=200):
@@ -176,17 +134,23 @@ COMPANY_NAMES = {
     "NVDA": "NVIDIA Corporation", "MSFT": "Microsoft Corporation", "AAPL": "Apple Inc.",
     "AMZN": "Amazon.com Inc.", "META": "Meta Platforms Inc.", "GOOGL": "Alphabet Inc.",
     "AMD": "Advanced Micro Devices Inc.", "INTC": "Intel Corporation", "IBM": "IBM Corporation",
-    "ORCL": "Oracle Corporation", "TSM": "Taiwan Semiconductor Manufacturing", "SMCI": "Super Micro Computer Inc.",
-    "TSLA": "Tesla Inc.", "PLTR": "Palantir Technologies Inc.", "NVO": "Novo Nordisk A/S",
-    "SOFI": "SoFi Technologies Inc.", "HOOD": "Robinhood Markets Inc.", "LMT": "Lockheed Martin Corporation",
-    "RTX": "RTX Corporation", "BA": "Boeing Company", "CAT": "Caterpillar Inc.", "DE": "Deere & Company",
-    "MCD": "McDonald's Corporation", "COST": "Costco Wholesale Corporation", "WMT": "Walmart Inc.",
-    "PG": "Procter & Gamble Co.", "JPM": "JPMorgan Chase & Co.", "GS": "Goldman Sachs Group, Inc.",
-    "BAC": "Bank of America Corp.", "MS": "Morgan Stanley", "XOM": "ExxonMobil Corporation",
-    "CVX": "Chevron Corporation", "VLO": "Valero Energy Corporation", "ASML": "ASML Holding N.V.",
-    "SAP": "SAP SE", "NESN.SW": "Nestlé S.A.", "RHM.DE": "Rheinmetall AG", "AIR.PA": "Airbus SE",
-    "4GLD.DE": "Xetra Gold (DE)", "GLD": "SPDR Gold Shares ETF", "SLV": "iShares Silver Trust ETF",
-    "USO": "United States Oil Fund ETF", "CPER": "United States Copper Index ETF", "URA": "Global X Uranium ETF",
+    "ORCL": "Oracle Corporation", "TSM": "Taiwan Semiconductor Manufacturing",
+    "SMCI": "Super Micro Computer Inc.", "TSLA": "Tesla Inc.",
+    "PLTR": "Palantir Technologies Inc.", "NVO": "Novo Nordisk A/S",
+    "SOFI": "SoFi Technologies Inc.", "HOOD": "Robinhood Markets Inc.",
+    "LMT": "Lockheed Martin Corporation", "RTX": "RTX Corporation",
+    "BA": "Boeing Company", "CAT": "Caterpillar Inc.", "DE": "Deere & Company",
+    "MCD": "McDonald's Corporation", "COST": "Costco Wholesale Corporation",
+    "WMT": "Walmart Inc.", "PG": "Procter & Gamble Co.",
+    "JPM": "JPMorgan Chase & Co.", "GS": "Goldman Sachs Group, Inc.",
+    "BAC": "Bank of America Corp.", "MS": "Morgan Stanley",
+    "XOM": "ExxonMobil Corporation", "CVX": "Chevron Corporation",
+    "VLO": "Valero Energy Corporation", "ASML": "ASML Holding N.V.",
+    "SAP": "SAP SE", "NESN.SW": "Nestlé S.A.", "RHM.DE": "Rheinmetall AG",
+    "AIR.PA": "Airbus SE", "4GLD.DE": "Xetra Gold (DE)",
+    "GLD": "SPDR Gold Shares ETF", "SLV": "iShares Silver Trust ETF",
+    "USO": "United States Oil Fund ETF", "CPER": "United States Copper Index ETF",
+    "URA": "Global X Uranium ETF",
 }
 
 GPW_SYMBOLS = {
@@ -216,6 +180,14 @@ last_check_time = "Brak"
 last_command_check = 0
 last_market_check = 0
 
+# ─────────────────────────────────────────────────────
+# IS_FIRST_RUN — przy każdym starcie bota (w tym po
+# restarcie Railway który czyści Redis) pierwszy przebieg
+# tylko zapisuje stany do Redis bez wysyłania alertów.
+# Zapobiega floodowi gdy Redis jest pusty po restarcie.
+# ─────────────────────────────────────────────────────
+IS_FIRST_RUN = True
+
 # =====================================================
 # DANE RYNKOWE
 # =====================================================
@@ -235,7 +207,6 @@ def get_market_data(symbol):
             if data.empty: return [], []
             return to_float_list(data["Close"].values), to_float_list(data["Volume"].values)
         except Exception: return [], []
-
     try:
         url = f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d"
         resp = requests.get(url, timeout=10)
@@ -266,7 +237,14 @@ def handle_telegram_commands():
             now = datetime.now(PL_TZ)
             weekend = is_weekend(now)
             silence = is_silence(now)
-            status_info = "🔴 Weekend — brak alertów" if weekend else ("🌙 Cisza nocna" if silence else "🟢 Aktywny")
+            if IS_FIRST_RUN:
+                status_info = "🔄 Hydratacja Redis (bez alertów)"
+            elif weekend:
+                status_info = "🔴 Weekend — brak alertów"
+            elif silence:
+                status_info = "🌙 Cisza nocna"
+            else:
+                status_info = "🟢 Aktywny"
             send_telegram_message(
                 f"🤖 Status bota\n\n"
                 f"Ostatni skan: {last_check_time}\n"
@@ -293,23 +271,19 @@ def handle_telegram_commands():
                 "Filtrowanie duplikatów:\n"
                 "• Ten sam sygnał wysyłany tylko gdy wartość zmieni się o ≥10pp\n"
                 "• Brak alertów w weekendy i między 00:00–06:00\n"
-                "• Cooldown między alertami dla tej samej spółki: "
-                f"{COOLDOWN//3600}h"
+                f"• Cooldown między alertami: {COOLDOWN//3600}h\n"
+                "• Przy restarcie: cichy przebieg (hydratacja Redis)"
             )
             send_telegram_message(msg)
 
         elif text == "/stats":
             try:
-                total = int(r.get('stats:total') or 0)
-                trend = int(r.get('stats:TREND_CONFIRMATION') or 0)
-                contra = int(r.get('stats:CONTRARIAN') or 0)
-                behav = int(r.get('stats:BEHAVIOR_CHANGE') or 0)
                 send_telegram_message(
                     f"📊 Statystyki\n\n"
-                    f"Łącznie: {total}\n"
-                    f"Trendowe: {trend}\n"
-                    f"Kontrariańskie: {contra}\n"
-                    f"Zmiana zachowania: {behav}"
+                    f"Łącznie: {int(r.get('stats:total') or 0)}\n"
+                    f"Trendowe: {int(r.get('stats:TREND_CONFIRMATION') or 0)}\n"
+                    f"Kontrariańskie: {int(r.get('stats:CONTRARIAN') or 0)}\n"
+                    f"Zmiana zachowania: {int(r.get('stats:BEHAVIOR_CHANGE') or 0)}"
                 )
             except Exception as e:
                 send_telegram_message(f"❌ Błąd /stats: {e}")
@@ -320,15 +294,12 @@ def handle_telegram_commands():
                 for symbol in ALL_SYMBOLS:
                     pipe.lrange(f"signals:{symbol}", 0, 0)
                 results = pipe.execute()
-
                 messages = []
                 for symbol, items in zip(ALL_SYMBOLS, results):
                     if items:
                         try:
                             messages.append(ast.literal_eval(items[0]))
-                        except Exception as parse_err:
-                            print(f"⚠️ Parse error {symbol}: {parse_err} | raw: {items[0][:100]}")
-
+                        except Exception: pass
                 if not messages:
                     send_telegram_message("Brak zapisanych sygnałów.")
                 else:
@@ -347,9 +318,8 @@ def handle_telegram_commands():
                 msg = f"🔍 Debug — {now.strftime('%H:%M:%S')}\n"
                 msg += f"Weekend: {'🔴 TAK' if is_weekend(now) else '🟢 NIE'}\n"
                 msg += f"Cisza nocna: {'🔴 TAK' if is_silence(now) else '🟢 NIE'}\n"
-                msg += f"Wysyłanie aktywne: {'🟢 TAK' if should_send(now) else '🔴 NIE'}\n"
-                msg += f"Próg zmienności: {VOLATILITY_THRESHOLD} | Mnożnik vol: {VOLUME_MULTIPLIER}\n\n"
-
+                msg += f"Wysyłanie aktywne: {'🟢 TAK' if should_send(now) and not IS_FIRST_RUN else '🔴 NIE'}\n"
+                msg += f"IS_FIRST_RUN: {'🔄 TAK' if IS_FIRST_RUN else '✅ NIE'}\n\n"
                 for sym in debug_symbols:
                     prices, vols = get_market_data(sym)
                     signals = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
@@ -357,21 +327,13 @@ def handle_telegram_commands():
                     last_t = get_last_signal_time(sym)
                     last_str = last_t.strftime('%Y-%m-%d %H:%M') if last_t else "brak"
                     last_state = get_last_state(sym)
-                    would_send = (
-                        should_send(now)
-                        and bool(signals)
-                        and is_significant_change(signals[0], last_state)
-                        and not cd
-                    )
                     sig_summary = f"{signals[0]['category']} ({extract_signal_value(signals[0])})" if signals else "brak"
                     msg += (
                         f"📊 {sym}\n"
                         f"  Sygnał: {sig_summary}\n"
                         f"  Cooldown: {'🔴' if cd else '🟢'} ({last_str})\n"
-                        f"  Ostatnia wartość: {last_state.get('value') if last_state else 'brak'}\n"
-                        f"  Wysłałby: {'🟢 TAK' if would_send else '🔴 NIE'}\n\n"
+                        f"  Ostatnia wartość: {last_state.get('value') if last_state else 'brak'}\n\n"
                     )
-
                 send_telegram_message(msg)
             except Exception as e:
                 send_telegram_message(f"❌ Błąd /debug: {e}")
@@ -388,7 +350,7 @@ def handle_telegram_commands():
                 "/info - Jak bot liczy sygnały\n"
                 "/stats - Statystyki wykryć\n"
                 "/last - 5 ostatnich alertów\n"
-                "/debug - Diagnostyka sygnałów (surowce)\n"
+                "/debug - Diagnostyka sygnałów\n"
                 "/papaj"
             )
 
@@ -396,36 +358,53 @@ def handle_telegram_commands():
 # ANALIZA RYNKU
 # =====================================================
 def analyze_market():
-    global last_check_time
+    global last_check_time, IS_FIRST_RUN
     now = datetime.now(PL_TZ)
     last_check_time = now.strftime("%H:%M:%S")
 
-    # Brak analizy w weekendy i w ciszy nocnej
-    if not should_send(now):
-        return
+    # Określ czy wolno wysyłać alerty
+    # IS_FIRST_RUN blokuje wysyłanie przy pierwszym przebiegu po każdym restarcie
+    # should_send blokuje weekend i ciszę nocną
+    send_alerts = not IS_FIRST_RUN and should_send(now)
+
+    if IS_FIRST_RUN:
+        print(f"{last_check_time} | 🔄 Hydratacja Redis — zapisuję stany, bez alertów")
+    elif not should_send(now):
+        # W weekend / ciszy — tylko aktualizuj stany, bez logowania każdego symbolu
+        print(f"{last_check_time} | {'🔴 Weekend' if is_weekend(now) else '🌙 Cisza'} — aktualizuję stany")
 
     for symbol in ALL_SYMBOLS:
         prices, vols = get_market_data(symbol)
-        if len(prices) < 50: continue
+        if len(prices) < 50:
+            continue
 
         signals = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
-        if not signals: continue
+        if not signals:
+            continue
 
         last_state = get_last_state(symbol)
 
         for s in signals:
-            if not is_significant_change(s, last_state):
-                continue
-            if is_on_cooldown(symbol, now):
-                continue
-
             verdict = (
                 "✅ KUPUJ" if s["category"] == "TREND_CONFIRMATION"
                 else "❌ SPRZEDAJ / OMIJAJ" if s["category"] == "CONTRARIAN"
                 else "⏸ OBSERWUJ"
             )
             val = extract_signal_value(s)
+
+            # ─── ZAWSZE zapisuj stan do Redis ───
+            # Nawet w weekend / ciszy / pierwszym uruchomieniu.
+            # Dzięki temu po restarcie / poniedziałku Redis ma aktualny
+            # baseline i fingerprint działa poprawnie.
             set_last_state(symbol, s["category"], verdict, val)
+
+            # ─── Wysyłaj tylko gdy wolno ───
+            if not send_alerts:
+                continue
+            if not is_significant_change(s, last_state):
+                continue
+            if is_on_cooldown(symbol, now):
+                continue
 
             company = COMPANY_NAMES.get(symbol, symbol)
             market = "GPW" if symbol in GPW_SYMBOLS else "USA/ETF"
@@ -443,8 +422,19 @@ def analyze_market():
             set_last_signal_time(symbol, now)
             time.sleep(1)
 
+    # Po pierwszym przebiegu odblokuj alerty
+    if IS_FIRST_RUN:
+        IS_FIRST_RUN = False
+        print(f"{last_check_time} | ✅ Hydratacja zakończona — alerty aktywne od następnego skanu")
+
+
+# =====================================================
+# START
+# =====================================================
 if __name__ == "__main__":
     print(f"🚀 Bot uruchomiony | Spółek: {len(ALL_SYMBOLS)}")
+    print(f"ℹ️  Pierwszy skan: hydratacja Redis (bez alertów)")
+
     while True:
         now_ts = time.time()
         if now_ts - last_command_check >= COMMAND_CHECK_INTERVAL:
