@@ -30,6 +30,23 @@ PL_TZ = ZoneInfo("Europe/Warsaw")
 
 
 # =====================================================
+# TELEGRAM – USUWANIE WEBHOOKA (ANTI-409)
+# =====================================================
+def ensure_no_webhook():
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        print("⚠️ Brak TELEGRAM_BOT_TOKEN – pomijam deleteWebhook")
+        return
+    url = f"https://api.telegram.org/bot{token}/deleteWebhook"
+    try:
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        print(f"🔧 deleteWebhook: {data.get('description', 'OK')}")
+    except Exception as e:
+        print(f"⚠️ deleteWebhook error: {e}")
+
+
+# =====================================================
 # REDIS
 # =====================================================
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -74,6 +91,7 @@ def extract_signal_value(signal):
 
 def is_significant_change(signal, last_state):
     if last_state is None:
+        # Brak baseline’u po hydracji -> NIE traktujemy tego jako zmianę
         return False
     if signal["category"] != last_state.get("category"):
         return True
@@ -117,16 +135,18 @@ def save_signal(symbol, signal, verdict, dt, max_items=200):
 # RYNKI
 # =====================================================
 GPW_SYMBOLS = {
-    "PKO", "PEO", "PZU", "ING", "MBK", "ALR", "PKN", "KGH", "PGE", "ENA", "TPE",
-    "CDR", "11B", "PLW", "TEN", "LPP", "DNP", "CCC", "ALE", "VRG", "XTB",
+    "PKO", "PEO", "PZU", "ING", "MBK", "ALR", "PKN",
+    "KGH", "PGE", "ENA", "TPE", "CDR", "11B", "PLW",
+    "TEN", "LPP", "DNP", "CCC", "ALE", "VRG", "XTB",
     "KTY", "ACP", "BDX", "OPL", "GPW", "SNT", "PHT", "SN2",
 }
 
 YAHOO_SYMBOLS = {
-    "AAPL", "AMZN", "META", "MSFT", "NVDA", "GOOGL", "AMD", "INTC", "IBM",
-    "ORCL", "TSM", "SMCI", "TSLA", "PLTR", "NVO", "SOFI", "HOOD",
-    "LMT", "RTX", "BA", "CAT", "DE", "MCD", "COST", "WMT", "PG",
-    "JPM", "GS", "BAC", "MS", "XOM", "CVX", "VLO",
+    "AAPL", "AMZN", "META", "MSFT", "NVDA", "GOOGL",
+    "AMD", "INTC", "IBM", "ORCL", "TSM", "SMCI", "TSLA",
+    "PLTR", "NVO", "SOFI", "HOOD", "LMT", "RTX", "BA",
+    "CAT", "DE", "MCD", "COST", "WMT", "PG", "JPM", "GS",
+    "BAC", "MS", "XOM", "CVX", "VLO",
     "ASML", "SAP", "NESN.SW", "RHM.DE", "AIR.PA",
     "4GLD.DE", "GLD", "SLV", "USO", "CPER", "URA",
 }
@@ -181,7 +201,7 @@ def get_market_data(symbol):
 def explain_symbol_state(symbol, now):
     prices, vols = get_market_data(symbol)
     if len(prices) < 50:
-        return "❌ Brak wystarczających danych (mniej niż 50 sesji)"
+        return "❌ Brak wystarczających danych (<50 sesji)"
 
     signals = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
     if not signals:
@@ -191,29 +211,19 @@ def explain_symbol_state(symbol, now):
     reasons = []
 
     for s in signals:
-        verdict = (
-            "✅ KUPUJ" if s["category"] == "TREND_CONFIRMATION"
-            else "❌ SPRZEDAJ / OMIJAJ" if s["category"] == "CONTRARIAN"
-            else "⏸ OBSERWUJ"
-        )
-
         if last_state is None:
-            reasons.append("🛑 Hydratacja Redis – brak poprzedniego baseline")
+            reasons.append("🛑 Hydratacja Redis – brak baseline’u")
             continue
-
         if not is_significant_change(s, last_state):
             reasons.append("🛑 Brak istotnej zmiany (ta sama kategoria / <10 pp)")
             continue
-
         if not should_send(now):
             reasons.append("🛑 Weekend lub cisza nocna")
             continue
-
         if is_on_cooldown(symbol, now):
             lt = get_last_signal_time(symbol)
-            reasons.append(f"🛑 Cooldown aktywny (ostatni alert: {lt.strftime('%H:%M') if lt else 'brak'})")
+            reasons.append(f"🛑 Cooldown (ostatni alert: {lt.strftime('%H:%M') if lt else 'brak'})")
             continue
-
         reasons.append("✅ Wszystkie warunki spełnione – alert byłby wysłany")
 
     return "\n".join(reasons) if reasons else "ℹ️ Brak jednoznacznego powodu"
@@ -245,7 +255,7 @@ def handle_telegram_commands():
             send_telegram_message(f"🔍 WHY {symbol}\n\n{explanation}")
 
         elif text == "/debug":
-            blocked_change = blocked_time = blocked_cooldown = with_signal = 0
+            with_signal = blocked_change = blocked_time = blocked_cooldown = 0
             for sym in ALL_SYMBOLS:
                 prices, vols = get_market_data(sym)
                 if len(prices) < 50:
@@ -264,18 +274,18 @@ def handle_telegram_commands():
                         blocked_cooldown += 1
 
             send_telegram_message(
-                "🛠 DEBUG STATUS\n\n"
-                f"Spółek ogółem: {len(ALL_SYMBOLS)}\n"
+                "🛠 DEBUG\n\n"
+                f"Spółek: {len(ALL_SYMBOLS)}\n"
                 f"Z sygnałem: {with_signal}\n\n"
-                f"🛑 Zablokowane:\n"
+                f"🛑 Blokady:\n"
                 f"- brak zmiany: {blocked_change}\n"
-                f"- czas/weekend: {blocked_time}\n"
+                f"- weekend/cisza: {blocked_time}\n"
                 f"- cooldown: {blocked_cooldown}"
             )
 
         elif text == "/stats":
             send_telegram_message(
-                f"📊 Statystyki\n"
+                "📊 Statystyki\n"
                 f"Łącznie: {int(r.get('stats:total') or 0)}\n"
                 f"Trendowe: {int(r.get('stats:TREND_CONFIRMATION') or 0)}\n"
                 f"Kontrariańskie: {int(r.get('stats:CONTRARIAN') or 0)}\n"
@@ -291,7 +301,6 @@ IS_FIRST_RUN = True
 def analyze_market():
     global IS_FIRST_RUN
     now = datetime.now(PL_TZ)
-
     send_alerts = (not IS_FIRST_RUN) and should_send(now)
 
     for symbol in ALL_SYMBOLS:
@@ -314,10 +323,11 @@ def analyze_market():
 
             value = extract_signal_value(s)
 
-            # ✅ KLUCZOWA KOLEJNOŚĆ – ZMIANA NAJPIERW
+            # ✅ NAJPIERW ZMIANA
             if not is_significant_change(s, last_state):
                 continue
 
+            # ✅ ZAWSZE zapisuj nowy stan
             set_last_state(symbol, s["category"], verdict, value)
 
             if not send_alerts:
@@ -350,6 +360,7 @@ last_command_check = 0
 last_market_check = 0
 
 if __name__ == "__main__":
+    ensure_no_webhook()
     print("🚀 Bot uruchomiony | tryb stabilny")
 
     while True:
@@ -364,3 +375,4 @@ if __name__ == "__main__":
             last_market_check = time.time()
 
         time.sleep(1)
+``
