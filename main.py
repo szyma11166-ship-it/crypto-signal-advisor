@@ -210,11 +210,11 @@ def explain_symbol(symbol, now):
     out = []
     for s in signals:
         if last_state is None:
-            out.append("🛑 Hydratacja Redis")
+            out.append("🛑 Hydratacja Redis – brak baseline’u")
         elif not is_significant_change(s, last_state):
-            out.append("🛑 Brak istotnej zmiany")
+            out.append("🛑 Brak istotnej zmiany (<10 pp / ta sama kategoria)")
         elif not should_send(now):
-            out.append("🛑 Weekend / cisza nocna")
+            out.append("🛑 Weekend lub cisza nocna")
         elif get_last_signal_time(symbol):
             out.append("🛑 Cooldown")
         else:
@@ -243,7 +243,20 @@ def handle_telegram_commands():
             send_telegram_message("📈 " + ", ".join(ALL_SYMBOLS))
 
         elif text == "/info":
-            send_telegram_message("ℹ️ Alert gdy zmiana >=10pp lub zmiana kategorii")
+            send_telegram_message(
+                "⚙️ Logika bota:\n\n"
+                "• Skanuje spółki z config (radar), portfel jest osobno.\n"
+                "• RSI wykrywa wyprzedanie (<30) i przegrzanie (>70).\n"
+                "• Wolumen: alert gdy > średnia * mnożnik.\n"
+                "• Alert TYLKO gdy zmiana kategorii LUB ≥10 pp.\n"
+                "• Cooldown zapobiega spamowi.\n"
+                "• Cisza nocna: 00:00–06:00.\n"
+                "• Brak alertów w weekend.\n"
+                "• Po restarcie: hydratacja Redis (bez alertów).\n\n"
+                "Explainability:\n"
+                "• /why SYMBOL – dlaczego alert poszedł lub NIE poszedł.\n"
+                "• /debug – zbiorczy stan blokad."
+            )
 
         elif text == "/stats":
             send_telegram_message(
@@ -275,7 +288,7 @@ def handle_telegram_commands():
                 send_telegram_message(explain_symbol(p[1].upper(), now))
 
         elif text == "/debug":
-            send_telegram_message(f"DEBUG: {len(ALL_SYMBOLS)} symbols, first run={IS_FIRST_RUN}")
+            send_telegram_message(f"DEBUG: symbols={len(ALL_SYMBOLS)} first_run={IS_FIRST_RUN}")
 
         elif text == "/papaj":
             send_telegram_message("💛 21:37 💛")
