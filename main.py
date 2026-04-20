@@ -253,9 +253,16 @@ def handle_telegram_commands():
                 "• Cisza nocna: 00:00–06:00.\n"
                 "• Brak alertów w weekend.\n"
                 "• Po restarcie: hydratacja Redis (bez alertów).\n\n"
-                "Explainability:\n"
-                "• /why SYMBOL – dlaczego alert poszedł lub NIE poszedł.\n"
-                "• /debug – zbiorczy stan blokad."
+                "Explainability:\n\n"
+                    "⚙️ Logika wyliczania sygnałów\n\n"
+                f"1️⃣ Zmienność: Próg {VOLATILITY_THRESHOLD * 100}% rocznie (20-dniowa).\n"
+                f"2️⃣ Wolumen: Mnożnik {VOLUME_MULTIPLIER}x powyżej średniej.\n"
+                "3️⃣ RSI: Wykrywa wyprzedanie (<30) i przegrzanie (>70).\n\n"
+                "Filtrowanie duplikatów:\n"
+                "• Ten sam sygnał wysyłany tylko gdy wartość zmieni się o ≥10pp\n"
+                "• Brak alertów w weekendy i między 00:00–06:00\n"
+                f"• Cooldown między alertami: {COOLDOWN//3600}h\n"
+                "• Przy restarcie: cichy przebieg (hydratacja Redis)"
             )
 
         elif text == "/stats":
@@ -296,7 +303,14 @@ def handle_telegram_commands():
 
         elif text == "/help":
             send_telegram_message(
-                "/status /list /info /stats /last /why SYMBOL /debug /papaj"
+                "/status /debug – status bota\n"
+                "/stats – statystyki\n"
+                "/last – ostatnie sygnały\n"
+                "/help – pomoc\n"
+                "/info - logika"
+                "/why - poprawność logiki\n"
+                "/papaj"
+                "/status /list /info /stats /last /why /debug /papaj"
             )
 
 
