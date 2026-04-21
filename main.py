@@ -111,7 +111,7 @@ def is_significant_change(signal, last_state):
     v1, v2 = extract_signal_value(signal), last_state.get("value")
     if v1 is None or v2 is None:
         return False
-    return abs(v1 - v2) >= 10.0
+    return abs(v1 - v2) >= 4.0
 
 
 def is_weekend(now):
@@ -212,7 +212,7 @@ def explain_symbol(symbol, now):
         if last_state is None:
             out.append("🛑 Hydratacja Redis – brak baseline’u")
         elif not is_significant_change(s, last_state):
-            out.append("🛑 Brak istotnej zmiany (<10 pp / ta sama kategoria)")
+            out.append("🛑 Brak istotnej zmiany (<4 pp / ta sama kategoria)")
         elif not should_send(now):
             out.append("🛑 Weekend lub cisza nocna")
         elif get_last_signal_time(symbol):
@@ -259,7 +259,7 @@ def handle_telegram_commands():
                 f"2️⃣ Wolumen: Mnożnik {VOLUME_MULTIPLIER}x powyżej średniej.\n"
                 "3️⃣ RSI: Wykrywa wyprzedanie (<30) i przegrzanie (>70).\n\n"
                 "Filtrowanie duplikatów:\n"
-                "• Ten sam sygnał wysyłany tylko gdy wartość zmieni się o ≥10pp\n"
+                "• Ten sam sygnał wysyłany tylko gdy wartość zmieni się o ≥4pp\n"
                 "• Brak alertów w weekendy i między 00:00–06:00\n"
                 f"• Cooldown między alertami: {COOLDOWN//3600}h\n"
                 "• Przy restarcie: cichy przebieg (hydratacja Redis)"
