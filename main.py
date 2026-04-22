@@ -370,14 +370,31 @@ last_market_check = 0
 
 if __name__ == "__main__":
     ensure_no_webhook()
-    print("🚀 Bot uruchomiony | tryb stabilny")
+    print("🚀 Bot uruchomiony | czekam na lock...")
 
-    while True:
-        t = time.time()
-        if t - last_command_check >= COMMAND_CHECK_INTERVAL:
-            handle_telegram_commands()
-            last_command_check = t
-        if t - last_market_check >= MARKET_ANALYSIS_INTERVAL:
-            analyze_market()
-            last_market_check = time.time()
+    # Czekaj aż stara instancja zwolni lock (max ~35s)
+    for _ in range(35):
+        if acquire_lock():
+            break
+        print("⏳ Inna instancja aktywna, czekam...")
         time.sleep(1)
+    else:
+        print("❌ Nie udało się zająć locka – kończę")
+        exit(1)
+
+    print("✅ Lock zajęty | tryb stabilny")
+
+    try:
+        while True:
+            refresh_lock()  # odnów co iterację
+            t = time.time()
+            if t - last_command_check >= COMMAND_CHECK_INTERVAL:
+                handle_telegram_commands()
+                last_command_check = t
+            if t - last_market_check >= MARKET_ANALYSIS_INTERVAL:
+                analyze_market()
+                last_market_check = time.time()
+            time.sleep(1)
+    finally:
+        release_lock()
+        print("🔓 Lock zwolniony")
