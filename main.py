@@ -71,7 +71,8 @@ def get_last_signal_time(symbol):
 
 
 def set_last_signal_time(symbol, dt):
-    r.set(f"cooldown:{symbol}", dt.isoformat())
+    # Oczekuje, że COOLDOWN to liczba sekund, np. 86400 (24h)
+    r.set(f"cooldown:{symbol}", dt.isoformat(), ex=COOLDOWN)
 
 
 def get_last_state(symbol):
@@ -105,7 +106,7 @@ def extract_signal_value(signal):
 
 def is_significant_change(signal, last_state):
     if last_state is None:
-        return False
+        return True 
     if signal["category"] != last_state.get("category"):
         return True
     v1, v2 = extract_signal_value(signal), last_state.get("value")
@@ -219,7 +220,9 @@ def explain_symbol(symbol, now):
             out.append("🛑 Cooldown")
         else:
             out.append("✅ Alert byłby wysłany")
-    return "\n".join(out)
+            
+    # Zwróć unikalne odpowiedzi (zachowując ich oryginalną kolejność, jeśli ma to znaczenie)
+    return "\n".join(list(dict.fromkeys(out))) 
 
 
 # ================= COMMANDS =================
