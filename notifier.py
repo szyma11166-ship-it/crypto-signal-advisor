@@ -6,23 +6,24 @@ BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
 def send_telegram_message(text: str, chat_id=None):
-    url = f"{BASE_URL}/sendMessage"
-
-    # jeśli nie podano chat_id → użyj domyślnego (np. kanał)
+    # Najpierw spróbuj wziąć token z os.getenv (Railway go tam trzyma)
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
     if chat_id is None:
-        chat_id = TELEGRAM_CHAT_ID
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    }
+    if not token or not chat_id:
+        print(f"❌ Brak danych do wysyłki: token={bool(token)}, chat={bool(chat_id)}")
+        return
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
 
     try:
         response = requests.post(url, json=payload, timeout=10)
         response.raise_for_status()
     except Exception as e:
         print(f"❌ Telegram error: {e}")
+
 
 def get_updates(offset=None):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
