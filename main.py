@@ -361,6 +361,19 @@ def analyze_market():
             time.sleep(1)
     IS_FIRST_RUN = False
 
+# ================= INSTANCE LOCK =================
+LOCK_KEY = "bot:instance_lock"
+LOCK_TTL = 30
+
+def acquire_lock():
+    return r.set(LOCK_KEY, "1", nx=True, ex=LOCK_TTL)
+
+def refresh_lock():
+    r.expire(LOCK_KEY, LOCK_TTL)
+
+def release_lock():
+    r.delete(LOCK_KEY)
+
 
 # ================= MAIN =================
 COMMAND_CHECK_INTERVAL = 3
@@ -372,7 +385,6 @@ if __name__ == "__main__":
     ensure_no_webhook()
     print("🚀 Bot uruchomiony | czekam na lock...")
 
-    # Czekaj aż stara instancja zwolni lock (max ~35s)
     for _ in range(35):
         if acquire_lock():
             break
@@ -386,7 +398,7 @@ if __name__ == "__main__":
 
     try:
         while True:
-            refresh_lock()  # odnów co iterację
+            refresh_lock()
             t = time.time()
             if t - last_command_check >= COMMAND_CHECK_INTERVAL:
                 handle_telegram_commands()
