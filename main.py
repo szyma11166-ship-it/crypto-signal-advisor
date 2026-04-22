@@ -217,7 +217,7 @@ def get_market_data(symbol):
 def explain_symbol(symbol, now):
     prices, vols = get_market_data(symbol)
     if len(prices) < 50:
-        return "❌ Brak danych"
+        return f"❌ Brak danych – pobrano {len(prices)} punktów dla {symbol}"
     signals = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
     if not signals:
         return "⏸ Brak sygnałów"
