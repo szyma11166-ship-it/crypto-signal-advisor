@@ -174,55 +174,44 @@ def to_float_list(arr):
 def get_market_data(symbol):
     symbol = symbol.upper()
     
-    # --- 1. OBSŁUGA YAHOO (USA: AAPL, NVDA itp.) ---
+    # 1. USA (Yahoo)
     if symbol in YAHOO_SYMBOLS:
         try:
-            # Dodajemy multi_level_index=False, żeby uprościć format danych
-            d = yf.download(symbol, period="1y", interval="1d", progress=False, multi_level_index=False)
+            # Wymuszamy brak multi-indexu
+            df = yf.download(symbol, period="1y", interval="1d", progress=False, multi_level_index=False)
+            if df.empty: return [], []
             
-            if d.empty or len(d) < 10:
-                return [], []
-            
-            # Bezpieczne wyciąganie kolumn (niezależnie od tego czy to Series czy DataFrame)
-            close_data = d['Close'].values.flatten().tolist()
-            volume_data = d['Volume'].values.flatten().tolist()
-            
-            return close_data, volume_data
+            # Pobieramy kolumny i czyścimy z wartości NaN (ważne!)
+            prices = df['Close'].dropna().tolist()
+            volumes = df['Volume'].dropna().tolist()
+            return prices, volumes
         except Exception as e:
-            print(f"❌ Błąd Yahoo Finance dla {symbol}: {e}")
+            print(f"❌ Yahoo error {symbol}: {e}")
             return [], []
 
-    # --- 2. OBSŁUGA STOOQ (GPW: PKO, PKN itp.) ---
+    # 2. GPW (Stooq)
     try:
         stooq_symbol = symbol.lower() if "." in symbol else f"{symbol.lower()}.pl"
         url = f"https://stooq.pl/q/d/l/?s={stooq_symbol}&i=d"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/110.0.0.0 Safari/537.36',
-            'Referer': 'https://stooq.pl/'
-        }
-        
+        headers = {'User-Agent': 'Mozilla/5.0'}
         r0 = requests.get(url, headers=headers, timeout=10)
         
-        if r0.status_code != 200 or len(r0.text) < 100 or "Brak danych" in r0.text:
+        if r0.status_code != 200 or "Brak danych" in r0.text:
             return [], []
             
-        prices, vols = [], []
         lines = r0.text.strip().splitlines()
+        if len(lines) < 50: return [], []
         
+        prices, vols = [], []
         for l in lines[1:]:
             p = l.split(",")
             if len(p) >= 6:
-                try:
-                    prices.append(float(p[4])) # Close
-                    vols.append(float(p[5]))   # Volume
-                except: continue
-        
+                prices.append(float(p[4]))
+                vols.append(float(p[5]))
         return prices, vols
     except Exception as e:
-        print(f"❌ Błąd Stooq dla {symbol}: {e}")
+        print(f"❌ Stooq error {symbol}: {e}")
         return [], []
-
 
 # ================= WHY =================
 def explain_symbol(symbol, now):
