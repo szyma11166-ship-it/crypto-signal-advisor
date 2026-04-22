@@ -174,50 +174,55 @@ def to_float_list(arr):
 def get_market_data(symbol):
     symbol = symbol.upper()
     
-    # 1. Obsługa Yahoo (USA) - tutaj zwykle nie ma problemów
+    # --- 1. OBSŁUGA YAHOO (USA: AAPL, NVDA itp.) ---
     if symbol in YAHOO_SYMBOLS:
         try:
-            d = yf.download(symbol, period="1y", interval="1d", progress=False)
-            if d.empty: return [], []
-            return to_float_list(d["Close"]), to_float_list(d["Volume"])
-        except Exception: return [], []
+            # Dodajemy multi_level_index=False, żeby uprościć format danych
+            d = yf.download(symbol, period="1y", interval="1d", progress=False, multi_level_index=False)
+            
+            if d.empty or len(d) < 10:
+                return [], []
+            
+            # Bezpieczne wyciąganie kolumn (niezależnie od tego czy to Series czy DataFrame)
+            close_data = d['Close'].values.flatten().tolist()
+            volume_data = d['Volume'].values.flatten().tolist()
+            
+            return close_data, volume_data
+        except Exception as e:
+            print(f"❌ Błąd Yahoo Finance dla {symbol}: {e}")
+            return [], []
 
-    # 2. Obsługa Stooq (Polska)
+    # --- 2. OBSŁUGA STOOQ (GPW: PKO, PKN itp.) ---
     try:
-        # AUTOMATYCZNA POPRAWKA: dodaj .pl jeśli go nie ma
         stooq_symbol = symbol.lower() if "." in symbol else f"{symbol.lower()}.pl"
-        
         url = f"https://stooq.pl/q/d/l/?s={stooq_symbol}&i=d"
         
-        # DODANY NAGŁÓWEK: udajemy przeglądarkę Chrome
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/110.0.0.0 Safari/537.36',
+            'Referer': 'https://stooq.pl/'
         }
         
         r0 = requests.get(url, headers=headers, timeout=10)
         
-        if r0.status_code != 200 or "Brak danych" in r0.text:
+        if r0.status_code != 200 or len(r0.text) < 100 or "Brak danych" in r0.text:
             return [], []
             
         prices, vols = [], []
         lines = r0.text.strip().splitlines()
         
-        # Sprawdzamy czy mamy nagłówek i dane (minimum 50 dni)
-        if len(lines) < 50:
-            return [], []
-
-        for l in lines[1:]: # Pomijamy nagłówek Date,Open,High...
+        for l in lines[1:]:
             p = l.split(",")
             if len(p) >= 6:
                 try:
                     prices.append(float(p[4])) # Close
                     vols.append(float(p[5]))   # Volume
-                except ValueError:
-                    continue
+                except: continue
+        
         return prices, vols
     except Exception as e:
-        print(f"Błąd pobierania {symbol}: {e}")
+        print(f"❌ Błąd Stooq dla {symbol}: {e}")
         return [], []
+
 
 # ================= WHY =================
 def explain_symbol(symbol, now):
