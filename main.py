@@ -173,31 +173,51 @@ def to_float_list(arr):
 
 def get_market_data(symbol):
     symbol = symbol.upper()
+    
+    # 1. Obsługa Yahoo (USA) - tutaj zwykle nie ma problemów
     if symbol in YAHOO_SYMBOLS:
         try:
             d = yf.download(symbol, period="1y", interval="1d", progress=False)
-            if d.empty:
-                return [], []
+            if d.empty: return [], []
             return to_float_list(d["Close"]), to_float_list(d["Volume"])
-        except Exception:
-            return [], []
+        except Exception: return [], []
+
+    # 2. Obsługa Stooq (Polska)
     try:
-        r0 = requests.get(
-            f"https://stooq.pl/q/d/l/?s={symbol.lower()}&i=d",
-            timeout=10
-        )
-        if r0.status_code != 200:
+        # AUTOMATYCZNA POPRAWKA: dodaj .pl jeśli go nie ma
+        stooq_symbol = symbol.lower() if "." in symbol else f"{symbol.lower()}.pl"
+        
+        url = f"https://stooq.pl/q/d/l/?s={stooq_symbol}&i=d"
+        
+        # DODANY NAGŁÓWEK: udajemy przeglądarkę Chrome
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        r0 = requests.get(url, headers=headers, timeout=10)
+        
+        if r0.status_code != 200 or "Brak danych" in r0.text:
             return [], []
+            
         prices, vols = [], []
-        for l in r0.text.splitlines()[1:][-300:]:
+        lines = r0.text.strip().splitlines()
+        
+        # Sprawdzamy czy mamy nagłówek i dane (minimum 50 dni)
+        if len(lines) < 50:
+            return [], []
+
+        for l in lines[1:]: # Pomijamy nagłówek Date,Open,High...
             p = l.split(",")
             if len(p) >= 6:
-                prices.append(float(p[4]))
-                vols.append(float(p[5]))
+                try:
+                    prices.append(float(p[4])) # Close
+                    vols.append(float(p[5]))   # Volume
+                except ValueError:
+                    continue
         return prices, vols
-    except Exception:
+    except Exception as e:
+        print(f"Błąd pobierania {symbol}: {e}")
         return [], []
-
 
 # ================= WHY =================
 def explain_symbol(symbol, now):
