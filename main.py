@@ -174,22 +174,50 @@ def to_float_list(arr):
 def get_market_data(symbol):
     symbol = symbol.upper()
     
-    # GPW – dodaj sufiks .WA
-    if symbol in GPW_SYMBOLS:
-        yf_symbol = f"{symbol}.WA"
-    else:
-        yf_symbol = symbol
-    
-    try:
-        df = yf.download(yf_symbol, period="1y", interval="1d", 
-                        progress=False, multi_level_index=False)
-        if df.empty:
+    # USA – Yahoo Finance
+    if symbol in YAHOO_SYMBOLS:
+        try:
+            df = yf.download(symbol, period="1y", interval="1d", 
+                           progress=False, multi_level_index=False)
+            if df.empty:
+                return [], []
+            prices = df['Close'].dropna().tolist()
+            volumes = df['Volume'].dropna().tolist()
+            return prices, volumes
+        except Exception as e:
+            print(f"❌ Yahoo error {symbol}: {e}")
             return [], []
-        prices = df['Close'].dropna().tolist()
-        volumes = df['Volume'].dropna().tolist()
-        return prices, volumes
+
+    # GPW – Stooq
+    try:
+        stooq_symbol = f"{symbol.lower()}.pl"
+        url = f"https://stooq.pl/q/d/l/?s={stooq_symbol}&i=d"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'pl-PL,pl;q=0.9',
+            'Referer': 'https://stooq.pl/',
+        }
+        r0 = requests.get(url, headers=headers, timeout=10)
+        if r0.status_code != 200 or "Brak danych" in r0.text or len(r0.text.strip()) < 50:
+            print(f"⚠️ Stooq brak danych dla {symbol}: status={r0.status_code} len={len(r0.text)}")
+            return [], []
+        lines = r0.text.strip().splitlines()
+        if len(lines) < 50:
+            print(f"⚠️ Stooq za mało wierszy dla {symbol}: {len(lines)}")
+            return [], []
+        prices, vols = [], []
+        for l in lines[1:]:
+            p = l.split(",")
+            if len(p) >= 6:
+                try:
+                    prices.append(float(p[4]))
+                    vols.append(float(p[5]))
+                except ValueError:
+                    continue
+        return prices, vols
     except Exception as e:
-        print(f"❌ yfinance error {yf_symbol}: {e}")
+        print(f"❌ Stooq error {symbol}: {e}")
         return [], []
 
 
