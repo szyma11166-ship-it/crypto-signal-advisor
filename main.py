@@ -332,7 +332,7 @@ def analyze_market():
                 continue
             market = "🇵🇱 GPW" if s in GPW_SYMBOLS else "🇺🇸 USA/ETF"
             msg = (
-                f"📡 <b>{s}</b>\n"
+                f"📡 {s}\n"
                 f"Rynek: {market}\n\n"
                 f"Sytuacja: {sig['title']}\n"
                 f"Werdykt: {verdict}\n\n"
