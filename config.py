@@ -16,17 +16,14 @@ INSTRUMENTS = [
     # Gry
     "CDR", "11B", "PLW", "TEN",
     # Handel / konsumpcja
-    "LPP", "DNP", "CCC", "ALE", "VRG",
+    "LPP", "DNP", "CCC", "ALE",
     # Technologia / pozostałe
     "XTB", "KTY", "ACP",
     # Budownictwo / infrastruktura
     "BDX",
     # Nowe dodatki GPW
     "OPL",   # Orange Polska – dywidendowa, stabilna
-    "GPW",   # GPW S.A. – meta-instrument giełdy
     "SNT",   # Synektik
-    "PHT",   # Pharmena / sektor medyczny
-    "SN2",   # S.A.
 
     # ================= USA – WALL STREET =================
     # Big Tech / AI
