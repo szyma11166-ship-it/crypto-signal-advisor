@@ -170,56 +170,23 @@ def to_float_list(arr):
             pass
     return out
 
-
 def get_market_data(symbol):
     symbol = symbol.upper()
     
-    # USA – Yahoo Finance
-    if symbol in YAHOO_SYMBOLS:
-        try:
-            df = yf.download(symbol, period="1y", interval="1d", 
-                           progress=False, multi_level_index=False)
-            if df.empty:
-                return [], []
-            prices = df['Close'].dropna().tolist()
-            volumes = df['Volume'].dropna().tolist()
-            return prices, volumes
-        except Exception as e:
-            print(f"❌ Yahoo error {symbol}: {e}")
-            return [], []
-
-    # GPW – Stooq
+    yf_symbol = f"{symbol}.WA" if symbol in GPW_SYMBOLS else symbol
+    
     try:
-        stooq_symbol = f"{symbol.lower()}.pl"
-        url = f"https://stooq.pl/q/d/l/?s={stooq_symbol}&i=d"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'pl-PL,pl;q=0.9',
-            'Referer': 'https://stooq.pl/',
-        }
-        r0 = requests.get(url, headers=headers, timeout=10)
-        if r0.status_code != 200 or "Brak danych" in r0.text or len(r0.text.strip()) < 50:
-            print(f"⚠️ Stooq brak danych dla {symbol}: status={r0.status_code} len={len(r0.text)}")
+        df = yf.download(yf_symbol, period="1y", interval="1d", 
+                        progress=False, multi_level_index=False)
+        if df.empty:
+            print(f"⚠️ Brak danych dla {yf_symbol}")
             return [], []
-        lines = r0.text.strip().splitlines()
-        if len(lines) < 50:
-            print(f"⚠️ Stooq za mało wierszy dla {symbol}: {len(lines)}")
-            return [], []
-        prices, vols = [], []
-        for l in lines[1:]:
-            p = l.split(",")
-            if len(p) >= 6:
-                try:
-                    prices.append(float(p[4]))
-                    vols.append(float(p[5]))
-                except ValueError:
-                    continue
-        return prices, vols
+        prices = df['Close'].dropna().tolist()
+        volumes = df['Volume'].dropna().tolist()
+        return prices, volumes
     except Exception as e:
-        print(f"❌ Stooq error {symbol}: {e}")
+        print(f"❌ yfinance error {yf_symbol}: {e}")
         return [], []
-
 
 # ================= WHY =================
 def explain_symbol(symbol, now):
@@ -364,14 +331,15 @@ def analyze_market():
             if get_last_signal_time(s):
                 continue
             market = "🇵🇱 GPW" if s in GPW_SYMBOLS else "🇺🇸 USA/ETF"
-            msg = (
-                f"📡 <b>{s}</b>\n"
-                f"Rynek: {market}\n\n"
-                f"Sytuacja: {sig['title']}\n"
-                f"Werdykt: {verdict}\n\n"
-                f"{sig.get('message', '')}"
+msg = (
+    f"📡 <b>{s}</b>\n"
+    f"Rynek: {market}\n\n"
+    f"Sytuacja: {sig['title']}\n"
+    f"Werdykt: {verdict}\n\n"
+    f"{sig.get('message', '')}"
 )
-            send_telegram_message(msg)
+send_telegram_message(msg)
+
             save_signal(s, sig, verdict, now)
             set_last_signal_time(s, now)
             time.sleep(1)
