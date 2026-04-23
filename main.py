@@ -364,15 +364,14 @@ def analyze_market():
             if get_last_signal_time(s):
                 continue
             market = "🇵🇱 GPW" if s in GPW_SYMBOLS else "🇺🇸 USA/ETF"
-msg = (
-    f"📡 <b>{s}</b>\n"
-    f"Rynek: {market}\n\n"
-    f"Sytuacja: {sig['title']}\n"
-    f"Werdykt: {verdict}\n\n"
-    f"{sig.get('message', '')}"
+            msg = (
+                f"📡 <b>{s}</b>\n"
+                f"Rynek: {market}\n\n"
+                f"Sytuacja: {sig['title']}\n"
+                f"Werdykt: {verdict}\n\n"
+                f"{sig.get('message', '')}"
 )
-send_telegram_message(msg)
-
+            send_telegram_message(msg)
             save_signal(s, sig, verdict, now)
             set_last_signal_time(s, now)
             time.sleep(1)
