@@ -174,44 +174,24 @@ def to_float_list(arr):
 def get_market_data(symbol):
     symbol = symbol.upper()
     
-    # 1. USA (Yahoo)
-    if symbol in YAHOO_SYMBOLS:
-        try:
-            # Wymuszamy brak multi-indexu
-            df = yf.download(symbol, period="1y", interval="1d", progress=False, multi_level_index=False)
-            if df.empty: return [], []
-            
-            # Pobieramy kolumny i czyścimy z wartości NaN (ważne!)
-            prices = df['Close'].dropna().tolist()
-            volumes = df['Volume'].dropna().tolist()
-            return prices, volumes
-        except Exception as e:
-            print(f"❌ Yahoo error {symbol}: {e}")
-            return [], []
-
-    # 2. GPW (Stooq)
+    # GPW – dodaj sufiks .WA
+    if symbol in GPW_SYMBOLS:
+        yf_symbol = f"{symbol}.WA"
+    else:
+        yf_symbol = symbol
+    
     try:
-        stooq_symbol = symbol.lower() if "." in symbol else f"{symbol.lower()}.pl"
-        url = f"https://stooq.pl/q/d/l/?s={stooq_symbol}&i=d"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        r0 = requests.get(url, headers=headers, timeout=10)
-        
-        if r0.status_code != 200 or "Brak danych" in r0.text:
+        df = yf.download(yf_symbol, period="1y", interval="1d", 
+                        progress=False, multi_level_index=False)
+        if df.empty:
             return [], []
-            
-        lines = r0.text.strip().splitlines()
-        if len(lines) < 50: return [], []
-        
-        prices, vols = [], []
-        for l in lines[1:]:
-            p = l.split(",")
-            if len(p) >= 6:
-                prices.append(float(p[4]))
-                vols.append(float(p[5]))
-        return prices, vols
+        prices = df['Close'].dropna().tolist()
+        volumes = df['Volume'].dropna().tolist()
+        return prices, volumes
     except Exception as e:
-        print(f"❌ Stooq error {symbol}: {e}")
+        print(f"❌ yfinance error {yf_symbol}: {e}")
         return [], []
+
 
 # ================= WHY =================
 def explain_symbol(symbol, now):
