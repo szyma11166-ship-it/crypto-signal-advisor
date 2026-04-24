@@ -146,7 +146,7 @@ def save_signal(symbol, signal, verdict, dt):
 # ================= MARKETS =================
 GPW_SYMBOLS = {
     "PKO","PEO","PZU","ING","MBK","ALR","PKN","KGH","PGE","ENA","TPE",
-    "CDR","11B","PLW","TEN","LPP","DNP","CCC","ALE","XTB","KTY",
+    "CDR","11B","PLW","TEN","LPP","DNP","MDV","ALE","XTB","KTY",
     "ACP","BDX","OPL","SNT"
 }
 
