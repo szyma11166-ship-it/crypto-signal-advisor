@@ -317,22 +317,22 @@ def analyze_market():
             continue
         sigs = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
         last_state = get_last_state(s)
-        for sig in sigs:
-    verdict = (
+    for sig in sigs:
+        verdict = (
         "✅ KUPUJ" if sig["category"]=="TREND_CONFIRMATION"
         else "❌ SPRZEDAJ / OMIJAJ" if sig["category"]=="CONTRARIAN"
         else "⏸ OBSERWUJ"
     )
-    if not is_significant_change(sig, last_state):
+        if not is_significant_change(sig, last_state):
         continue
     
-    val = extract_signal_value(sig)
-    set_last_state(s, sig["category"], verdict, val)
-    set_last_signal_time(s, now)  # ← ZAWSZE zapisuj cooldown gdy sygnał jest istotny
+        val = extract_signal_value(sig)
+        set_last_state(s, sig["category"], verdict, val)
+        set_last_signal_time(s, now)  # ← ZAWSZE zapisuj cooldown gdy sygnał jest istotny
     
-    if not should_send(now) or IS_FIRST_RUN:
+        if not should_send(now) or IS_FIRST_RUN:
         continue
-    if get_last_signal_time(s):  # ← to teraz zawsze złapie przy kolejnym przebiegu
+        if get_last_signal_time(s):  # ← to teraz zawsze złapie przy kolejnym przebiegu
         continue
             market = "🇵🇱 GPW" if s in GPW_SYMBOLS else "🇺🇸 USA/ETF"
             msg = (
