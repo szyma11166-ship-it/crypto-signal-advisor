@@ -16,7 +16,7 @@ INSTRUMENTS = [
     # Gry
     "CDR", "11B", "PLW", "TEN",
     # Handel / konsumpcja
-    "LPP", "DNP", "CCC", "ALE",
+    "LPP", "DNP", "MDV", "ALE",
     # Technologia / pozostałe
     "XTB", "KTY", "ACP",
     # Budownictwo / infrastruktura
