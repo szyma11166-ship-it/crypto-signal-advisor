@@ -170,23 +170,32 @@ def to_float_list(arr):
             pass
     return out
 
-def get_market_data(symbol):
+def get_market_data(symbol, retries=3):
     symbol = symbol.upper()
-    
     yf_symbol = f"{symbol}.WA" if symbol in GPW_SYMBOLS else symbol
-    
-    try:
-        df = yf.download(yf_symbol, period="1y", interval="1d", 
-                        progress=False, multi_level_index=False)
-        if df.empty:
+
+    for attempt in range(retries):
+        try:
+            df = yf.download(yf_symbol, period="1y", interval="1d",
+                             progress=False, multi_level_index=False)
+            if not df.empty:
+                prices = df['Close'].dropna().tolist()
+                volumes = df['Volume'].dropna().tolist()
+                return prices, volumes
             print(f"⚠️ Brak danych dla {yf_symbol}")
             return [], []
-        prices = df['Close'].dropna().tolist()
-        volumes = df['Volume'].dropna().tolist()
-        return prices, volumes
-    except Exception as e:
-        print(f"❌ yfinance error {yf_symbol}: {e}")
-        return [], []
+        except Exception as e:
+            err = str(e)
+            if "can't start new thread" in err:
+                print(f"⚠️ Thread limit, czekam... ({attempt+1}/{retries})")
+                time.sleep(5 * (attempt + 1))
+            else:
+                print(f"❌ yfinance error {yf_symbol}: {e}")
+                return [], []
+
+    print(f"⚠️ Brak danych dla {yf_symbol} po {retries} próbach")
+    return [], []
+
 
 # ================= WHY =================
 def explain_symbol(symbol, now):
@@ -313,27 +322,36 @@ def analyze_market():
     now = datetime.now(PL_TZ)
     for s in ALL_SYMBOLS:
         prices, vols = get_market_data(s)
+        time.sleep(0.5)  # rate limiting Yahoo Finance
         if len(prices) < 50:
             continue
-        sigs = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
+        
+        sigs = []
+        try:
+            sigs = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
+        except Exception as e:
+            print(f"❌ signals error {s}: {e}")
+            continue
+        
         last_state = get_last_state(s)
-    for sig in sigs:
-        verdict = (
-        "✅ KUPUJ" if sig["category"]=="TREND_CONFIRMATION"
-        else "❌ SPRZEDAJ / OMIJAJ" if sig["category"]=="CONTRARIAN"
-        else "⏸ OBSERWUJ"
-    )
-        if not is_significant_change(sig, last_state):
-            continue
-    
-        val = extract_signal_value(sig)
-        set_last_state(s, sig["category"], verdict, val)
-        set_last_signal_time(s, now)  # ← ZAWSZE zapisuj cooldown gdy sygnał jest istotny
-    
-        if not should_send(now) or IS_FIRST_RUN:
-            continue
-        if get_last_signal_time(s):  # ← to teraz zawsze złapie przy kolejnym przebiegu
-            continue
+        for sig in sigs:
+            verdict = (
+                "✅ KUPUJ" if sig["category"] == "TREND_CONFIRMATION"
+                else "❌ SPRZEDAJ / OMIJAJ" if sig["category"] == "CONTRARIAN"
+                else "⏸ OBSERWUJ"
+            )
+            if not is_significant_change(sig, last_state):
+                continue
+
+            val = extract_signal_value(sig)
+            set_last_state(s, sig["category"], verdict, val)
+            set_last_signal_time(s, now)  # zawsze zapisuj cooldown
+
+            if not should_send(now) or IS_FIRST_RUN:
+                continue
+            if get_last_signal_time(s):
+                continue
+
             market = "🇵🇱 GPW" if s in GPW_SYMBOLS else "🇺🇸 USA/ETF"
             msg = (
                 f"📡 {s}\n"
@@ -341,12 +359,13 @@ def analyze_market():
                 f"Sytuacja: {sig['title']}\n"
                 f"Werdykt: {verdict}\n\n"
                 f"{sig.get('message', '')}"
-)
+            )
             send_telegram_message(msg)
             save_signal(s, sig, verdict, now)
-            set_last_signal_time(s, now)
             time.sleep(1)
+
     IS_FIRST_RUN = False
+
 
 # ================= INSTANCE LOCK =================
 LOCK_KEY = "bot:instance_lock"
