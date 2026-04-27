@@ -322,17 +322,17 @@ def analyze_market():
     now = datetime.now(PL_TZ)
     for s in ALL_SYMBOLS:
         prices, vols = get_market_data(s)
-        time.sleep(0.5)  # rate limiting Yahoo Finance
+        time.sleep(0.5)
         if len(prices) < 50:
             continue
-        
+
         sigs = []
         try:
             sigs = detect_market_signals(prices, vols, VOLATILITY_THRESHOLD, VOLUME_MULTIPLIER)
         except Exception as e:
             print(f"❌ signals error {s}: {e}")
             continue
-        
+
         last_state = get_last_state(s)
         for sig in sigs:
             verdict = (
@@ -344,8 +344,7 @@ def analyze_market():
                 continue
 
             val = extract_signal_value(sig)
-            set_last_state(s, sig["category"], verdict, val)
-            set_last_signal_time(s, now)  # zawsze zapisuj cooldown
+            set_last_state(s, sig["category"], verdict, val)  # stan zawsze
 
             if not should_send(now) or IS_FIRST_RUN:
                 continue
@@ -362,6 +361,7 @@ def analyze_market():
             )
             send_telegram_message(msg)
             save_signal(s, sig, verdict, now)
+            set_last_signal_time(s, now)  # cooldown TYLKO po wysłaniu
             time.sleep(1)
 
     IS_FIRST_RUN = False
