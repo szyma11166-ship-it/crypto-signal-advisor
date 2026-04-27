@@ -316,7 +316,7 @@ def handle_telegram_commands():
                 "/help – pomoc\n"
                 "/info - logika\n"
                 "/why - poprawność logiki\n"
-                "/resetcooldowns - czyszczenie pamięci"
+                "/resetcooldowns - czyszczenie pamięci\n"
                 "/papaj"
             )
 
