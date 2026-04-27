@@ -287,6 +287,12 @@ def handle_telegram_commands():
                 send_telegram_message(
                     "\n".join(f"{m['symbol']} {m['verdict']}" for m in msgs[:5])
                 )
+        
+        elif text == "/resetcooldowns":
+            for sym in ALL_SYMBOLS:
+                r.delete(f"cooldown:{sym}")
+                send_telegram_message("✅ Cooldowny wyczyszczone")
+
 
         elif text.startswith("/why"):
             p = text.split()
@@ -310,6 +316,7 @@ def handle_telegram_commands():
                 "/help – pomoc\n"
                 "/info - logika\n"
                 "/why - poprawność logiki\n"
+                "/resetcooldowns - czyszczenie pamięci"
                 "/papaj"
             )
 
