@@ -437,7 +437,8 @@ if __name__ == "__main__":
         exit(1)
 
     print("✅ Lock zajęty | tryb stabilny")
-
+    time.sleep(3)  # grace period dla Railway
+    
     try:
         while True:
             if not refresh_lock():            
