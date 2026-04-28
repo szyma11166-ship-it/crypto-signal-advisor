@@ -441,9 +441,12 @@ if __name__ == "__main__":
     
     try:
         while True:
-            if not refresh_lock():            
-                print("🔴 Przechodzę w tryb pasywny – lock utracony")
-                break
+            if not refresh_lock():
+                print("🟡 Lock utracony – czekam na ponowne przejęcie")
+                time.sleep(2)
+                if not acquire_lock():
+                    continue
+            print("✅ Lock odzyskany")
             t = time.time()
             if t - last_command_check >= COMMAND_CHECK_INTERVAL:
                 handle_telegram_commands()
