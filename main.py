@@ -460,7 +460,7 @@ if __name__ == "__main__":
                     continue
 
             else:
-            _lock_lost_at = None  # lock stabilny
+                 _lock_lost_at = None  # lock stabilny
 
             t = time.time()
 
