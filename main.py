@@ -174,26 +174,36 @@ def get_market_data(symbol, retries=3):
     symbol = symbol.upper()
     yf_symbol = f"{symbol}.WA" if symbol in GPW_SYMBOLS else symbol
 
-    for attempt in range(retries):
+    for attempt in range(1, retries + 1):
         try:
-            df = yf.download(yf_symbol, period="1y", interval="1d",
-                             progress=False, multi_level_index=False)
-            if not df.empty:
-                prices = df['Close'].dropna().tolist()
-                volumes = df['Volume'].dropna().tolist()
-                return prices, volumes
-            print(f"⚠️ Brak danych dla {yf_symbol}")
-            return [], []
-        except Exception as e:
-            err = str(e)
-            if "can't start new thread" in err:
-                print(f"⚠️ Thread limit, czekam... ({attempt+1}/{retries})")
-                time.sleep(5 * (attempt + 1))
-            else:
-                print(f"❌ yfinance error {yf_symbol}: {e}")
-                return [], []
+            df = yf.download(
+                yf_symbol,
+                period="1y",
+                interval="1d",
+                progress=False,
+                threads=False,
+                auto_adjust=True
+            )
 
-    print(f"⚠️ Brak danych dla {yf_symbol} po {retries} próbach")
+            if df is None or df.empty:
+                raise ValueError("Puste dane z Yahoo")
+
+            prices = df["Close"].dropna().tolist()
+            volumes = df["Volume"].dropna().tolist()
+
+            if len(prices) < 20:
+                raise ValueError("Za mało danych")
+
+            return prices, volumes
+
+        except Exception as e:
+            print(
+                f"⚠️ Yahoo Finance [{yf_symbol}] "
+                f"próba {attempt}/{retries}: {e}"
+            )
+            time.sleep(2 * attempt)
+
+    print(f"❌ Brak danych dla {yf_symbol} po {retries} próbach")
     return [], []
 
 
@@ -373,20 +383,39 @@ def analyze_market():
 
     IS_FIRST_RUN = False
 
+# ================= INSTANCE LOCK (SAFE) =================
+import uuid
+from redis.exceptions import ConnectionError
 
-# ================= INSTANCE LOCK =================
 LOCK_KEY = "bot:instance_lock"
 LOCK_TTL = 30
+INSTANCE_ID = str(uuid.uuid4())
 
 def acquire_lock():
-    return r.set(LOCK_KEY, "1", nx=True, ex=LOCK_TTL)
+    try:
+        return r.set(LOCK_KEY, INSTANCE_ID, nx=True, ex=LOCK_TTL)
+    except ConnectionError:
+        print("⚠️ Redis niedostępny podczas acquire_lock")
+        return False
 
 def refresh_lock():
-    r.expire(LOCK_KEY, LOCK_TTL)
+    try:
+        current = r.get(LOCK_KEY)
+        if current != INSTANCE_ID:
+            print("⚠️ Utracono lock (inna instancja?)")
+            return False
+        r.expire(LOCK_KEY, LOCK_TTL)
+        return True
+    except ConnectionError:
+        print("⚠️ Redis niedostępny – nie odświeżono locka")
+        return False
 
 def release_lock():
-    r.delete(LOCK_KEY)
-
+    try:
+        if r.get(LOCK_KEY) == INSTANCE_ID:
+            r.delete(LOCK_KEY)
+    except ConnectionError:
+        pass
 
 # ================= MAIN =================
 COMMAND_CHECK_INTERVAL = 3
@@ -411,7 +440,9 @@ if __name__ == "__main__":
 
     try:
         while True:
-            refresh_lock()
+            if not refresh_lock()            
+                print("🔴 Przechodzę w tryb pasywny – lock utracony")
+                break
             t = time.time()
             if t - last_command_check >= COMMAND_CHECK_INTERVAL:
                 handle_telegram_commands()
