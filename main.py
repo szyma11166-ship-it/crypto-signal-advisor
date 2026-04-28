@@ -442,6 +442,39 @@ if __name__ == "__main__":
     try:
         while True:
             if not refresh_lock():
+                if _lock_lost_at is None:
+                    print("🟡 Lock utracony – przechodzę w tryb oczekiwania")
+                    _lock_lost_at = time.time()
+
+        # jeszcze nie próbujemy odzyskiwać
+                if time.time() - _lock_lost_at < LOCK_RETRY_INTERVAL:
+                    time.sleep(1)
+                    continue
+
+        # po X sekundach próbujemy odzyskać
+                if acquire_lock():
+                    print("✅ Lock odzyskany – wracam do trybu aktywnego")
+                    _lock_lost_at = None
+                else:
+                    time.sleep(1)
+                    continue
+
+            else:
+            _lock_lost_at = None  # lock stabilny
+
+            t = time.time()
+
+            if t - last_command_check >= COMMAND_CHECK_INTERVAL:
+                handle_telegram_commands()
+                last_command_check = t
+        
+            if t - last_market_check >= MARKET_ANALYSIS_INTERVAL:
+                analyze_market()
+                last_market_check = time.time()
+
+            time.sleep(1)
+        while True:
+            if not refresh_lock():
                 print("🟡 Lock utracony – czekam na ponowne przejęcie")
                 time.sleep(2)
                 if not acquire_lock():
