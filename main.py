@@ -440,7 +440,7 @@ if __name__ == "__main__":
 
     try:
         while True:
-            if not refresh_lock()            
+            if not refresh_lock():            
                 print("🔴 Przechodzę w tryb pasywny – lock utracony")
                 break
             t = time.time()
