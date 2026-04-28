@@ -188,8 +188,8 @@ def get_market_data(symbol, retries=3):
             if df is None or df.empty:
                 raise ValueError("Puste dane z Yahoo")
 
-            prices = df["Close"].dropna().tolist()
-            volumes = df["Volume"].dropna().tolist()
+            prices = to_float_list(df[["Close"]].dropna().values)
+            volumes = to_float_list(df[["Volume"]].dropna().values)
 
             if len(prices) < 20:
                 raise ValueError("Za mało danych")
