@@ -417,6 +417,10 @@ def release_lock():
     except ConnectionError:
         pass
 
+# ================= LOCK RECOVERY CONFIG =================
+LOCK_RETRY_INTERVAL = 10  # sekundy pomiędzy próbami odzyskania locka
+_lock_lost_at = None
+
 # ================= MAIN =================
 COMMAND_CHECK_INTERVAL = 3
 MARKET_ANALYSIS_INTERVAL = 300
